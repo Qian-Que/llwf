@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>榴莲忘贩 · 在线房间版（玩家可操作）</title>
+  <title>榴莲忘贩 · 在线房间版</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <!-- Firebase v9 compat 版 -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
@@ -365,17 +365,17 @@
     </div>
   </div>
 
-  <!-- 主机：订单双水果二选一 -->
+  <!-- 双水果二选一弹窗（现在给手机端用） -->
   <div class="overlay" id="orderOverlay">
     <div class="overlay-inner">
       <div class="overlay-title" id="orderOverlayTitle">选择要下单的水果</div>
       <div>从下面两种水果中选择一种加入订单区。</div>
       <div class="fruit-choice-row">
-        <div class="fruit-chip" onclick="chooseOrderOption('A')">
+        <div class="fruit-chip" onclick="playerChooseOrder('A')">
           <span id="orderOptAEmoji">🍇</span>
           <span id="orderOptAText">葡萄 × 2</span>
         </div>
-        <div class="fruit-chip" onclick="chooseOrderOption('B')">
+        <div class="fruit-chip" onclick="playerChooseOrder('B')">
           <span id="orderOptBEmoji">🍓</span>
           <span id="orderOptBText">草莓 × 1</span>
         </div>
@@ -384,19 +384,17 @@
   </div>
 
   <script>
-    // ====== 需要你自己填的 Firebase 配置 ======
+    // ====== 这里填你在 Firebase 控制台复制的 firebaseConfig ======
     const firebaseConfig = {
-  apiKey: "AIzaSyAj_-XDvWzVh82dG2l5W92m94pTGgXb8FI",
-  authDomain: "llwf-214bc.firebaseapp.com",
-  databaseURL: "https://llwf-214bc-default-rtdb.firebaseio.com",
-  projectId: "llwf-214bc",
-  storageBucket: "llwf-214bc.firebasestorage.app",
-  messagingSenderId: "78615220940",
-  appId: "1:78615220940:web:90496b12ed2250072f6869",
-  measurementId: "G-6RJTS4WR2T"
-   };
-    // =====================================
-
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      databaseURL: "https://YOUR_DB_URL.firebaseio.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+    // ========================================================
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
@@ -480,10 +478,10 @@
       return parts.join(" ");
     }
 
-    // ====== 主机状态 ======
+    // ====== 主机端状态 ======
     let roomId = null;
     let playerCount = 2;
-    let hostPlayers = [];      // {name, anger}
+    let hostPlayers = [];
     let inventoryCards = [];
     let lastInventoryCards = null;
     let currentPlayer = 0;
@@ -534,11 +532,11 @@
           orders:[],
           lastOrderPlayer:-1,
           angerToken:1,
-          infoText:"房主已创建房间，正在发牌…"
+          infoText:"房主已创建房间，正在发牌…",
+          gameOver:false
         }
       });
 
-      // 设置 actions 队列监听
       actionsRef = db.ref("rooms/"+roomId+"/actions");
       actionsRef.remove();
       actionsRef.on("child_added", snap=>{
@@ -700,7 +698,8 @@
           lastOrderPlayer:-1,
           angerToken,
           infoText:msg,
-          gameOver:false
+          gameOver:false,
+          pendingOrder:null
         });
       }
     }
@@ -716,18 +715,24 @@
       startNewRound(true);
     }
 
-    // ====== 通过 actions 队列处理操作（主机） ======
+    // ====== actions 队列处理（主机） ======
     function handleActionFromQueue(action){
       if(!roomId) return;
       const type=action.type;
       const seat=action.seat;
+
       if(type==="draw"){
-        if(seat!==currentPlayer) return; // 只允许当前玩家摸牌
+        if(seat!==currentPlayer) return;
         performDraw(seat);
       }else if(type==="bell"){
         performRing(seat);
       }else if(type==="nextRound"){
         performNextRound();
+      }else if(type==="chooseA" || type==="chooseB"){
+        if(!choosingOrder || !pendingOrder) return;
+        if(seat !== pendingOrder.by) return; // 只有摸牌的玩家能选
+        const side = type==="chooseA" ? "A" : "B";
+        applyOrderChoice(side);
       }
     }
 
@@ -738,7 +743,6 @@
       });
     }
 
-    // 主机本地按钮：也通过 actions
     function hostDrawClick(){
       if(gameOver || canStartNextRound) return;
       enqueueAction("draw", currentPlayer);
@@ -750,7 +754,7 @@
       enqueueAction("nextRound", currentPlayer);
     }
 
-    // 真正的游戏逻辑实现（只在主机执行）
+    // ====== 核心逻辑：摸牌 & 选订单（主机只算，不选） ======
     function performDraw(seat){
       if(gameOver || canStartNextRound) return;
       if(choosingOrder) return;
@@ -760,6 +764,7 @@
       do{idxB=randomInt(0,FRUITS.length-1);}while(idxB===idxA);
       const fruitA=FRUITS[idxA];
       const fruitB=FRUITS[idxB];
+
       const maxAmount=(playerCount===2?2:3);
       const amountA=randomInt(1,maxAmount);
       const amountB=randomInt(1,maxAmount);
@@ -771,21 +776,24 @@
       };
       choosingOrder=true;
 
-      $("orderOverlayTitle").textContent="轮到 "+hostPlayers[seat].name+"：选择订单";
-      $("orderOptAEmoji").textContent=fruitA.emoji;
-      $("orderOptAText").textContent=fruitA.label+" × "+amountA;
-      $("orderOptBEmoji").textContent=fruitB.emoji;
-      $("orderOptBText").textContent=fruitB.label+" × "+amountB;
-      $("orderOverlay").style.display="flex";
-      $("drawBtn").disabled=true;
-      $("bellBtn").disabled=true;
+      if(roomId){
+        db.ref("rooms/"+roomId+"/game/pendingOrder").set({
+          by: seat,
+          optionA: pendingOrder.optionA,
+          optionB: pendingOrder.optionB,
+          awaitingChoice: true
+        });
+      }
 
-      const msg=`${hostPlayers[seat].name} 抽到：${fruitA.emoji}${amountA} 或 ${fruitB.emoji}${amountB}`;
+      const msg=`${hostPlayers[seat].name} 摸牌：请在 TA 的手机上选择订单。`;
       $("infoBox").innerHTML=msg;
       if(roomId) db.ref("rooms/"+roomId+"/game/infoText").set(msg);
+
+      $("drawBtn").disabled=true;
+      $("bellBtn").disabled=true;
     }
 
-    function chooseOrderOption(side){
+    function applyOrderChoice(side){
       if(!choosingOrder || !pendingOrder || gameOver) return;
       const player=pendingOrder.by;
       const opt=side==="A"?pendingOrder.optionA:pendingOrder.optionB;
@@ -808,9 +816,13 @@
       updateOrdersSummary();
       $("lastOrderPlayerLabel").textContent=hostPlayers[lastOrderPlayer].name;
 
-      $("orderOverlay").style.display="none";
       choosingOrder=false;
       pendingOrder=null;
+      $("orderOverlay").style.display="none";
+
+      if(roomId){
+        db.ref("rooms/"+roomId+"/game/pendingOrder").remove();
+      }
 
       const next=(player+1)%playerCount;
       currentPlayer=next;
@@ -884,7 +896,6 @@
       inventoryCards.forEach(card=>{
         if(!card) return;
         if(card.type==="zero"){
-          // 全 0
         }else if(card.type==="banana_inf"){
           FRUITS.forEach(f=>{
             if(f.key==="banana") totalInventory[f.key]=Infinity;
@@ -1014,11 +1025,9 @@
         $("playerCardView").innerHTML="链接无效";
         return;
       }
-      roomId = rid;        // 玩家同样使用全局 roomId
+      roomId = rid;
       playerSeat = parseInt(seatStr,10);
       $("playerRoomLabel").textContent=`房间：${rid} · 座位：${playerSeat+1}`;
-
-      actionsRef = db.ref("rooms/"+roomId+"/actions"); // 玩家只负责 push，不监听
 
       const roomRef=db.ref("rooms/"+rid);
       roomRef.on("value",snap=>{
@@ -1026,12 +1035,14 @@
         if(!val){
           $("playerCardView").innerHTML="房间不存在或未创建。";
           $("playerInfoText").textContent="请确认房间号是否正确。";
+          $("orderOverlay").style.display="none";
           return;
         }
         const p=val.players && val.players[playerSeat];
         if(!p){
           $("playerCardView").innerHTML="该座位未被使用。";
           $("playerInfoText").textContent="请让主机确认玩家人数设置。";
+          $("orderOverlay").style.display="none";
           return;
         }
         const name=p.name||("玩家"+(playerSeat+1));
@@ -1052,20 +1063,53 @@
         if($("pDrawBtn")){
           $("pDrawBtn").disabled = !isMyTurn || g.gameOver;
         }
+
+        // 如果轮到我选订单，弹出双水果选择
+        const pending = g.pendingOrder;
+        if(pending && pending.by === playerSeat && pending.awaitingChoice){
+          const fruitA = FRUITS.find(f=>f.key===pending.optionA.fruitKey);
+          const fruitB = FRUITS.find(f=>f.key===pending.optionB.fruitKey);
+          $("orderOverlayTitle").textContent = "你摸到两种订单，选择其一：";
+          $("orderOptAEmoji").textContent = fruitA ? fruitA.emoji : "A";
+          $("orderOptAText").textContent = (fruitA ? fruitA.label : "水果") + " × " + pending.optionA.amount;
+          $("orderOptBEmoji").textContent = fruitB ? fruitB.emoji : "B";
+          $("orderOptBText").textContent = (fruitB ? fruitB.label : "水果") + " × " + pending.optionB.amount;
+          $("orderOverlay").style.display = "flex";
+        }else{
+          $("orderOverlay").style.display = "none";
+        }
+      });
+    }
+
+    function enqueueActionPlayer(type){
+      if(!roomId || playerSeat===null || !db) return;
+      const refActions=db.ref("rooms/"+roomId+"/actions");
+      refActions.push({
+        type, seat:playerSeat, ts:Date.now(), processed:false
       });
     }
 
     function playerDrawClick(){
-      if(!roomId || playerSeat===null) return;
-      enqueueAction("draw", playerSeat);
+      enqueueActionPlayer("draw");
     }
     function playerBellClick(){
-      if(!roomId || playerSeat===null) return;
-      enqueueAction("bell", playerSeat);
+      enqueueActionPlayer("bell");
     }
     function playerNextRoundClick(){
+      enqueueActionPlayer("nextRound");
+    }
+
+    function playerChooseOrder(side){
       if(!roomId || playerSeat===null) return;
-      enqueueAction("nextRound", playerSeat);
+      const type = side === "A" ? "chooseA" : "chooseB";
+      const refActions = db.ref("rooms/"+roomId+"/actions");
+      refActions.push({
+        type,
+        seat: playerSeat,
+        ts: Date.now(),
+        processed: false
+      });
+      $("orderOverlay").style.display = "none";
     }
 
     // ====== 模式切换 ======

@@ -365,7 +365,7 @@
     </div>
   </div>
 
-  <!-- 双水果二选一弹窗（现在给手机端用） -->
+  <!-- 双水果二选一弹窗（只给当前摸牌玩家手机用） -->
   <div class="overlay" id="orderOverlay">
     <div class="overlay-inner">
       <div class="overlay-title" id="orderOverlayTitle">选择要下单的水果</div>
@@ -384,7 +384,7 @@
   </div>
 
   <script>
-    // ====== 这里填你在 Firebase 控制台复制的 firebaseConfig ======
+    // ====== 替换成你自己的 firebaseConfig ======
     const firebaseConfig = {
   apiKey: "AIzaSyAj_-XDvWzVh82dG2l5W92m94pTGgXb8FI",
   authDomain: "llwf-214bc.firebaseapp.com",
@@ -395,7 +395,7 @@
   appId: "1:78615220940:web:90496b12ed2250072f6869",
   measurementId: "G-6RJTS4WR2T"
 };
-    // ========================================================
+    // ===========================================
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
@@ -534,7 +534,8 @@
           lastOrderPlayer:-1,
           angerToken:1,
           infoText:"房主已创建房间，正在发牌…",
-          gameOver:false
+          gameOver:false,
+          pendingOrder:null
         }
       });
 
@@ -716,7 +717,7 @@
       startNewRound(true);
     }
 
-    // ====== actions 队列处理（主机） ======
+    // ====== 主机 actions 队列处理 ======
     function handleActionFromQueue(action){
       if(!roomId) return;
       const type=action.type;
@@ -731,7 +732,7 @@
         performNextRound();
       }else if(type==="chooseA" || type==="chooseB"){
         if(!choosingOrder || !pendingOrder) return;
-        if(seat !== pendingOrder.by) return; // 只有摸牌的玩家能选
+        if(seat !== pendingOrder.by) return;
         const side = type==="chooseA" ? "A" : "B";
         applyOrderChoice(side);
       }
@@ -755,7 +756,7 @@
       enqueueAction("nextRound", currentPlayer);
     }
 
-    // ====== 核心逻辑：摸牌 & 选订单（主机只算，不选） ======
+    // ====== 主机：摸牌 & 选订单结算（手机选，主机算） ======
     function performDraw(seat){
       if(gameOver || canStartNextRound) return;
       if(choosingOrder) return;
@@ -1030,20 +1031,18 @@
       playerSeat = parseInt(seatStr,10);
       $("playerRoomLabel").textContent=`房间：${rid} · 座位：${playerSeat+1}`;
 
-      const roomRef=db.ref("rooms/"+rid);
-      roomRef.on("value",snap=>{
-        const val=snap.val();
-        if(!val){
+      const playersRef = db.ref("rooms/"+rid+"/players");
+      const gameRef = db.ref("rooms/"+rid+"/game");
+
+      playersRef.on("value", snap=>{
+        const players = snap.val();
+        if(!players){
           $("playerCardView").innerHTML="房间不存在或未创建。";
-          $("playerInfoText").textContent="请确认房间号是否正确。";
-          $("orderOverlay").style.display="none";
           return;
         }
-        const p=val.players && val.players[playerSeat];
+        const p = players[playerSeat];
         if(!p){
           $("playerCardView").innerHTML="该座位未被使用。";
-          $("playerInfoText").textContent="请让主机确认玩家人数设置。";
-          $("orderOverlay").style.display="none";
           return;
         }
         const name=p.name||("玩家"+(playerSeat+1));
@@ -1055,17 +1054,22 @@
           $("playerCardView").innerHTML=
             `${name} 的库存牌：<br><br>${desc}<br><small>注意不要把屏幕给对手看。</small>`;
         }
+      });
 
-        const g=val.game || {};
+      gameRef.on("value", snap=>{
+        const g = snap.val();
+        if(!g){
+          $("playerInfoText").innerHTML="等待主机开始游戏…";
+          $("orderOverlay").style.display="none";
+          return;
+        }
+
         const info=g.infoText || "等待主机操作…";
         $("playerInfoText").innerHTML=info;
 
         const isMyTurn = (g.currentPlayer===playerSeat);
-        if($("pDrawBtn")){
-          $("pDrawBtn").disabled = !isMyTurn || g.gameOver;
-        }
+        $("pDrawBtn").disabled = !isMyTurn || g.gameOver;
 
-        // 如果轮到我选订单，弹出双水果选择
         const pending = g.pendingOrder;
         if(pending && pending.by === playerSeat && pending.awaitingChoice){
           const fruitA = FRUITS.find(f=>f.key===pending.optionA.fruitKey);

@@ -343,24 +343,35 @@
   <div class="player-root" id="playerRoot">
     <h1>榴莲忘贩 · 玩家视角</h1>
     <div class="subtitle" id="playerRoomLabel">房间：— 座位：—</div>
+
     <div class="big-card" id="playerCardView">
       正在连接房间…
       <small>请确认链接正确，且主机已创建房间。</small>
     </div>
+
     <div class="card">
       <div id="playerInfoText" style="font-size:13px;">
         等待主机开始游戏…
       </div>
     </div>
+
+    <!-- 玩家也能看到订单区（只读） -->
+    <div class="card">
+      <div style="font-size:13px;margin-bottom:4px;">订单区</div>
+      <div class="orders-summary" id="pOrdersSummary">当前还没有订单。</div>
+      <div class="orders-list" id="pOrdersList"></div>
+    </div>
+
     <div class="card">
       <div style="font-size:13px;margin-bottom:6px;">操作</div>
       <div class="row center">
         <button class="btn" id="pDrawBtn" onclick="playerDrawClick()">🍉 摸牌</button>
         <button class="btn secondary" id="pBellBtn" onclick="playerBellClick()">🔔 摇铃</button>
         <button class="btn secondary" id="pNextBtn" onclick="playerNextRoundClick()">➡️ 下一回合</button>
+        <button class="btn secondary" id="pResetBtn" onclick="playerResetClick()">🧹 重置整场</button>
       </div>
       <div style="font-size:11px;color:#999;margin-top:4px;">
-        摸牌：仅在轮到你时有效；摇铃 / 下一回合：所有玩家都可按。
+        摸牌：仅在轮到你时有效；摇铃 / 下一回合 / 重置整场：任何人都可按，由主机执行。
       </div>
     </div>
   </div>
@@ -394,7 +405,7 @@
   messagingSenderId: "78615220940",
   appId: "1:78615220940:web:90496b12ed2250072f6869",
   measurementId: "G-6RJTS4WR2T"
-};
+   };
     // ===========================================
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
@@ -735,6 +746,8 @@
         if(seat !== pendingOrder.by) return;
         const side = type==="chooseA" ? "A" : "B";
         applyOrderChoice(side);
+      }else if(type==="resetGame"){
+        resetGame();
       }
     }
 
@@ -1018,6 +1031,7 @@
 
     // ====== 玩家模式 ======
     let playerSeat = null;
+    let playerRoomPlayers = null; // 缓存玩家信息，给订单显示名字用
 
     function initPlayerMode(){
       const rid=getQueryParam("room");
@@ -1036,6 +1050,7 @@
 
       playersRef.on("value", snap=>{
         const players = snap.val();
+        playerRoomPlayers = players || null;
         if(!players){
           $("playerCardView").innerHTML="房间不存在或未创建。";
           return;
@@ -1061,6 +1076,8 @@
         if(!g){
           $("playerInfoText").innerHTML="等待主机开始游戏…";
           $("orderOverlay").style.display="none";
+          $("pOrdersSummary").textContent="当前还没有订单。";
+          $("pOrdersList").innerHTML = "";
           return;
         }
 
@@ -1070,6 +1087,43 @@
         const isMyTurn = (g.currentPlayer===playerSeat);
         $("pDrawBtn").disabled = !isMyTurn || g.gameOver;
 
+        // 玩家侧订单区显示
+        const ordersArr = g.orders || [];
+        const pSummary = $("pOrdersSummary");
+        const pList = $("pOrdersList");
+        if(ordersArr.length===0){
+          pSummary.textContent = "当前还没有订单。";
+          pList.innerHTML = "";
+        }else{
+          const totals={grape:0,strawberry:0,banana:0,durian:0};
+          ordersArr.forEach(o=>{
+            if(typeof totals[o.fruitKey]==="number"){
+              totals[o.fruitKey]+=o.amount;
+            }
+          });
+          const frags=[];
+          FRUITS.forEach(f=>{
+            frags.push(`<span>${f.emoji}${f.label}：${totals[f.key]}</span>`);
+          });
+          pSummary.innerHTML = frags.join("");
+
+          let listHtml = "";
+          ordersArr.forEach(o=>{
+            const fruit = FRUITS.find(f=>f.key===o.fruitKey);
+            const emoji = fruit ? fruit.emoji : "❓";
+            const label = fruit ? fruit.label : "水果";
+            let name = "未知";
+            if(playerRoomPlayers && playerRoomPlayers[o.by]){
+              name = playerRoomPlayers[o.by].name || ("玩家"+(o.by+1));
+            }else{
+              name = "玩家"+(o.by+1);
+            }
+            listHtml += `<div class="order-card"><span>${emoji}</span><span>${label} × ${o.amount}（${name}）</span></div>`;
+          });
+          pList.innerHTML = listHtml;
+        }
+
+        // 如果轮到我选订单，弹出双水果选择
         const pending = g.pendingOrder;
         if(pending && pending.by === playerSeat && pending.awaitingChoice){
           const fruitA = FRUITS.find(f=>f.key===pending.optionA.fruitKey);
@@ -1102,6 +1156,9 @@
     }
     function playerNextRoundClick(){
       enqueueActionPlayer("nextRound");
+    }
+    function playerResetClick(){
+      enqueueActionPlayer("resetGame");
     }
 
     function playerChooseOrder(side){

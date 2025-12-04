@@ -272,6 +272,20 @@
     .fruit-chip span {
       font-size: 14px;
     }
+
+    /* 玩家状态卡片（手机端） */
+    .p-player-row {
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .p-player-name {
+      margin-bottom: 2px;
+    }
+    .p-player-anger-text {
+      font-size: 11px;
+      color: #666;
+      margin-top: 2px;
+    }
   </style>
 </head>
 <body>
@@ -355,6 +369,12 @@
       </div>
     </div>
 
+    <!-- 玩家状态：愤怒值条（手机端） -->
+    <div class="card">
+      <div style="font-size:13px;margin-bottom:4px;">玩家状态</div>
+      <div id="pPlayersContainer"></div>
+    </div>
+
     <!-- 玩家也能看到订单区（只读） -->
     <div class="card">
       <div style="font-size:13px;margin-bottom:4px;">订单区</div>
@@ -372,6 +392,9 @@
       </div>
       <div style="font-size:11px;color:#999;margin-top:4px;">
         摸牌：仅在轮到你时有效；摇铃 / 下一回合 / 重置整场：任何人都可按，由主机执行。
+      </div>
+      <div style="font-size:11px;color:#777;margin-top:6px;text-align:center;">
+        想自己当主机？<button class="btn small" onclick="gotoHostMode()">我要创建新房间</button>
       </div>
     </div>
   </div>
@@ -1031,7 +1054,7 @@
 
     // ====== 玩家模式 ======
     let playerSeat = null;
-    let playerRoomPlayers = null; // 缓存玩家信息，给订单显示名字用
+    let playerRoomPlayers = null; // 缓存玩家信息，给订单显示名字和愤怒条用
 
     function initPlayerMode(){
       const rid=getQueryParam("room");
@@ -1051,6 +1074,10 @@
       playersRef.on("value", snap=>{
         const players = snap.val();
         playerRoomPlayers = players || null;
+
+        const pContainer = $("pPlayersContainer");
+        pContainer.innerHTML = "";
+
         if(!players){
           $("playerCardView").innerHTML="房间不存在或未创建。";
           return;
@@ -1058,17 +1085,35 @@
         const p = players[playerSeat];
         if(!p){
           $("playerCardView").innerHTML="该座位未被使用。";
-          return;
-        }
-        const name=p.name||("玩家"+(playerSeat+1));
-        const inv=p.inventory;
-        if(!inv){
-          $("playerCardView").innerHTML=`${name}<br><br>本局库存牌尚未发放或尚未开始。`;
         }else{
-          const desc=describeInventoryCardShort(inv);
-          $("playerCardView").innerHTML=
-            `${name} 的库存牌：<br><br>${desc}<br><small>注意不要把屏幕给对手看。</small>`;
+          const name=p.name||("玩家"+(playerSeat+1));
+          const inv=p.inventory;
+          if(!inv){
+            $("playerCardView").innerHTML=`${name}<br><br>本局库存牌尚未发放或尚未开始。`;
+          }else{
+            const desc=describeInventoryCardShort(inv);
+            $("playerCardView").innerHTML=
+              `${name} 的库存牌：<br><br>${desc}<br><small>注意不要把屏幕给对手看。</small>`;
+          }
         }
+
+        // 填充玩家状态列表 + 愤怒条
+        const keys = Object.keys(players).sort((a,b)=>parseInt(a,10)-parseInt(b,10));
+        keys.forEach(k=>{
+          const idx = parseInt(k,10);
+          const pl = players[k];
+          if(!pl) return;
+          const name = pl.name || ("玩家"+(idx+1));
+          const anger = pl.anger || 0;
+          const pct = Math.min(anger/ANGER_LIMIT,1)*100;
+          const row = document.createElement("div");
+          row.className = "p-player-row";
+          row.innerHTML =
+            `<div class="p-player-name">座位 ${idx+1}：${name}</div>
+             <div class="anger-bar"><div class="anger-fill" style="width:${pct}%;"></div></div>
+             <div class="p-player-anger-text">愤怒：${anger}</div>`;
+          pContainer.appendChild(row);
+        });
       });
 
       gameRef.on("value", snap=>{
@@ -1172,6 +1217,12 @@
         processed: false
       });
       $("orderOverlay").style.display = "none";
+    }
+
+    // 手机端一键切回主机模式（创建新房间）
+    function gotoHostMode(){
+      const url = location.origin + location.pathname;
+      location.href = url;
     }
 
     // ====== 模式切换 ======

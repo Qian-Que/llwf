@@ -1524,7 +1524,17 @@
         `<code>${baseUrl}</code><br>把这条链接发给其他玩家，让他们加入并选择座位。`;
 
       const roomRef=db.ref("rooms/"+rid);
-      roomRef.on("value",snap=>{
+
+      const handleRoomError = (err) => {
+        console.error("读取房间数据失败:", err);
+        updateConnectionStatusUI(false);
+        $("playerCardView").innerHTML =
+          "连接房间时出错，请刷新页面或稍后重试。<br><small>如果多台设备都这样，检查一下 Firebase Realtime Database 的规则是否允许读写。</small>";
+        $("playerInfoText").textContent = "房间数据暂时无法读取，请稍后重试。";
+        renderSeatList([], 0, null);
+      };
+
+      const handleRoomSnapshot = (snap) => {
         try{
           const val=snap.val();
           latestRoomData = val;
@@ -1736,10 +1746,12 @@
           }
         }catch(e){
           console.error("房间数据处理出错:", e);
-          $("playerCardView").innerHTML =
-            "连接房间时出错，请刷新页面或稍后重试。<br><small>如果多台设备都这样，检查一下 Firebase Realtime Database 的规则是否允许读写。</small>";
+          handleRoomError(e);
         }
-      });
+      };
+
+      roomRef.on("value", handleRoomSnapshot, handleRoomError);
+      roomRef.once("value").then(handleRoomSnapshot).catch(handleRoomError);
     }
 
     // 自动换座：点击新座位，原座位自动下线；如果是房主，房主身份跟随座位移动

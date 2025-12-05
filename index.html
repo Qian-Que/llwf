@@ -759,6 +759,15 @@
       card.style.display = isHostClient ? "block" : "none";
     }
 
+    function syncHostClientFlag(hostSeatVal){
+      // 仅当房间已指定房主座位时，才根据座位同步房主标识；
+      // 否则保留当前标识（用于房主首次入座前）。
+      if(typeof hostSeatVal === "number"){
+        isHostClient = (playerSeat !== null && hostSeatVal === playerSeat);
+      }
+      updateHostControlCardVisibility();
+    }
+
     function renderHostPlayers(){
       const container=$("playersContainer");
       let html="";
@@ -1376,6 +1385,7 @@
 
           // 渲染座位列表（点击加入 / 离开）
           renderSeatList(players, pc, hostSeatVal);
+          syncHostClientFlag(hostSeatVal);
 
           const g=val.game || {};
           const started = !!g.started;
@@ -1613,6 +1623,7 @@
 
       const nextHostSeatVal = updates["hostSeat"] ?? latestRoomData.hostSeat;
       renderSeatList(latestRoomData.players || [], count, nextHostSeatVal);
+      syncHostClientFlag(nextHostSeatVal);
 
       // 房主逻辑：房主换座，房主身份跟着这个玩家
       const currentHostSeat = latestRoomData.hostSeat;
@@ -1677,6 +1688,8 @@
         nextHostSeatVal
       );
       $("playerRoomLabel").textContent=`房间：${roomId} · 座位：观战中`;
+      isHostClient = false;
+      updateHostControlCardVisibility();
     }
 
     function enqueueActionPlayer(type){

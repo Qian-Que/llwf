@@ -401,6 +401,10 @@
 
     <div class="card" id="seatCard">
       <div style="font-size:13px;margin-bottom:6px;">座位（点击加入，否则为观战）</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+        <input id="nicknameInput" placeholder="输入昵称（留空则用座位号）" style="flex:1;min-width:0;" onblur="saveNickname()" value="" />
+        <button class="btn small secondary" onclick="saveNickname()">保存昵称</button>
+      </div>
       <div id="seatList"></div>
     </div>
 
@@ -595,7 +599,9 @@
     // 玩家端：当前房间数据
     let latestRoomData = null;
     let playerSeat = null;
-    let localNickname = ""; // 当前设备的昵称
+    let localNickname = localStorage.getItem("llwfNickname") || ""; // 当前设备的昵称
+    let seatOnlineRef = null;      // 当前座位的在线状态引用，用于 onDisconnect
+    let heartbeatTimer = null;     // 在线心跳定时器
 
     function genRandomRoomId(){
       const id=String(randomInt(1000,9999));
@@ -1269,6 +1275,11 @@
       roomId = rid;
       $("playerRoomLabel").textContent=`房间：${rid} · 座位：观战中`;
 
+      const nickInput = $("nicknameInput");
+      if(nickInput){
+        nickInput.value = localNickname;
+      }
+
       // 分享链接
       const origin=location.origin+location.pathname;
       const baseUrl=`${origin}?room=${encodeURIComponent(rid)}`;
@@ -1538,6 +1549,14 @@
       const nameToUse = localNickname || target.name || ("玩家" + (seatIdx + 1));
       updates[`players/${seatIdx}/online`] = true;
       updates[`players/${seatIdx}/name`] = nameToUse;
+      updates[`players/${seatIdx}/lastSeen`] = Date.now();
+
+      if(seatOnlineRef){
+        seatOnlineRef.onDisconnect().cancel();
+      }
+      seatOnlineRef = db.ref(`rooms/${roomId}/players/${seatIdx}/online`);
+      seatOnlineRef.onDisconnect().set(false);
+      setupHeartbeat();
 
       // 房主逻辑：房主换座，房主身份跟着这个玩家
       const currentHostSeat = latestRoomData.hostSeat;
@@ -1563,7 +1582,15 @@
       if(!latestRoomData || !roomId) return;
       if(playerSeat===null) return;
       const seatIdx = playerSeat;
-      db.ref("rooms/"+roomId+"/players/"+seatIdx+"/online").set(false);
+      if(seatOnlineRef){
+        seatOnlineRef.onDisconnect().cancel();
+        seatOnlineRef = null;
+      }
+      if(heartbeatTimer){
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      db.ref("rooms/"+roomId+"/players/"+seatIdx).update({ online:false, lastSeen:Date.now() });
 
       const currentHostSeat = latestRoomData.hostSeat;
       if(isHostClient && currentHostSeat === seatIdx){
@@ -1630,7 +1657,7 @@
       initPlayerMode();
     }
 
-    // ====== 模式切换 ======
+    // ====== 模式切换与昵称 ======
     function toggleToHostMode(){
       $("hostRoot").style.display="flex";
       $("playerRoot").style.display="none";
@@ -1639,6 +1666,39 @@
       $("hostRoot").style.display="none";
       $("playerRoot").style.display="flex";
       updateHostControlCardVisibility();
+    }
+
+    window.addEventListener("beforeunload", ()=>{
+      if(seatOnlineRef){
+        seatOnlineRef.onDisconnect().cancel();
+      }
+      if(roomId && playerSeat!==null){
+        db.ref(`rooms/${roomId}/players/${playerSeat}/online`).set(false);
+      }
+      if(heartbeatTimer){
+        clearInterval(heartbeatTimer);
+        heartbeatTimer=null;
+      }
+    });
+
+    function saveNickname(){
+      const input = $("nicknameInput");
+      if(!input) return;
+      const val = input.value.trim();
+      localNickname = val;
+      localStorage.setItem("llwfNickname", val);
+      if(roomId && playerSeat !== null){
+        const ref = db.ref(`rooms/${roomId}/players/${playerSeat}/name`);
+        ref.set(val || ("玩家" + (playerSeat + 1)));
+      }
+    }
+
+    function setupHeartbeat(){
+      if(!roomId || playerSeat === null) return;
+      if(heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(()=>{
+        db.ref(`rooms/${roomId}/players/${playerSeat}/lastSeen`).set(Date.now());
+      }, 15000);
     }
 
     window.onload=function(){

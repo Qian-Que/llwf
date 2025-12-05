@@ -415,7 +415,7 @@
 
     <div class="card" id="controlCard" style="display:none;">
       <div class="row center" style="margin-bottom:6px;">
-        <button class="btn" id="startGameBtn" onclick="hostStartGame()" disabled>▶️ 开始游戏</button>
+        <button class="btn" id="startGameBtn" onclick="hostStartOrRestart()" disabled>▶️ 开始游戏</button>
       </div>
       <div class="row center" style="margin-bottom:6px;">
         <button class="btn" id="drawBtn" onclick="hostDrawClick()" disabled>🍉 摸牌并下订单</button>
@@ -505,7 +505,7 @@
       <div style="font-size:12px;margin-bottom:6px;">
         你是本房间房主 👑，座位坐满后可以在这里开始游戏。
       </div>
-      <button class="btn" onclick="hostStartGame()">▶️ 开始游戏</button>
+      <button class="btn" id="hostStartGameInPlayerBtn" onclick="hostStartOrRestart()">▶️ 开始游戏</button>
       <div style="font-size:11px;color:#999;margin-top:4px;">（此按钮仅在本机有效）</div>
     </div>
   </div>
@@ -667,6 +667,14 @@
       return parts.join(" ");
     }
 
+    function describeInventoryCardForSelf(card){
+      if(!card) return "本局尚未发放库存牌。";
+      if(card.type==="zero") return "你的库存牌：0号墨菲（所有水果数量为 0）。";
+      if(card.type==="banana_inf"){ return "你的库存牌：香蕉南希（香蕉为 ∞，其他水果如牌面）。"; }
+      if(card.type==="green_star"){ return "你的库存牌：3号米奇（数字为 3 的订单无效，其余为"+describeInventoryCardShort(card).replace(/^3号米奇：/,'')+"）。"; }
+      return "你的库存牌："+describeInventoryCardShort(card)+"。";
+    }
+
     // ====== 主机端状态 ======
     let roomId = null;
     let playerCount = 2;
@@ -745,7 +753,8 @@
           angerToken:1,
           infoText:"房主已创建房间，等待座位坐满并开始游戏。",
           gameOver:false,
-          pendingOrder:null
+          pendingOrder:null,
+          canStartNextRound:false
         }
       });
 
@@ -838,9 +847,16 @@
     }
     function updateStartGameButton(){
       const btn=$("startGameBtn");
+      const hostBtnPlayer=$("hostStartGameInPlayerBtn");
       if(!btn) return;
       const full = areSeatsFull();
-      btn.disabled = !full || gameStarted;
+      const isRestart = gameStarted;
+      btn.textContent = isRestart ? "🔄 重新开始" : "▶️ 开始游戏";
+      btn.disabled = !full;
+      if(hostBtnPlayer){
+        hostBtnPlayer.textContent = btn.textContent;
+        hostBtnPlayer.disabled = btn.disabled;
+      }
     }
     function updateHostControlCardVisibility(){
       const card = $("hostControlInPlayerCard");
@@ -998,7 +1014,8 @@
           angerToken,
           infoText:msg,
           gameOver:false,
-          pendingOrder:null
+          pendingOrder:null,
+          canStartNextRound:false
         });
       }
       updateStartGameButton();
@@ -1044,7 +1061,8 @@
           angerToken:1,
           infoText:msg,
           gameOver:false,
-          pendingOrder:null
+          pendingOrder:null,
+          canStartNextRound:false
         }
       });
     }
@@ -1062,6 +1080,50 @@
       angerToken=1;
       gameOver=false;
       startNewRound(true);
+    }
+
+    function hostRestartGame(){
+      if(!roomId) return;
+      if(!areSeatsFull()){
+        alert("座位尚未坐满，无法重新开始。");
+        return;
+      }
+      hostPlayers.forEach(p=>p.anger=0);
+      angerToken=1;
+      roundNumber=1;
+      roundStartPlayer=0;
+      currentPlayer=0;
+      gameOver=false;
+      gameStarted=false;
+      choosingOrder=false;
+      pendingOrder=null;
+      canStartNextRound=false;
+      inventoryCards=[];
+      lastInventoryCards=null;
+      $("nextRoundBtn").disabled=true;
+      $("drawBtn").disabled=true;
+      $("bellBtn").disabled=true;
+      updateAngerUI();
+      clearOrdersUI();
+      if(roomId){
+        const resetPlayers = hostPlayers.map((p,i)=>({
+          name:p.name,
+          anger:0,
+          seat:i,
+          inventory:null,
+          online:p.online||false
+        }));
+        db.ref("rooms/"+roomId+"/players").set(resetPlayers);
+      }
+      startNewRound(true);
+    }
+
+    function hostStartOrRestart(){
+      if(gameStarted){
+        hostRestartGame();
+      }else{
+        hostStartGame();
+      }
     }
 
     // ====== actions 队列处理（主机） ======
@@ -1343,7 +1405,8 @@
         if(roomId){
           db.ref("rooms/"+roomId+"/game").update({
             infoText:(info+endText).replace(/<[^>]*>/g,""),
-            gameOver:true
+            gameOver:true,
+            canStartNextRound:false
           });
         }
         $("nextRoundBtn").disabled=true;
@@ -1361,7 +1424,8 @@
             lastOrderPlayer:-1,
             angerToken,
             infoText:(info).replace(/<[^>]*>/g,""),
-            gameOver:false
+            gameOver:false,
+            canStartNextRound:true
           });
         }
       }
@@ -1494,10 +1558,13 @@
             const angerVal = me && typeof me.anger === "number" ? me.anger : 0;
             const isHostSeatMe = (hostSeatVal === playerSeat);
             const hostTag = isHostSeatMe ? "（👑 房主）" : "";
+            const roundEnded = !!(g.canStartNextRound || g.gameOver);
 
             let selfInvLine = "";
             if (!inv) {
               selfInvLine = "本局库存牌尚未发放或尚未开始。";
+            } else if (roundEnded) {
+              selfInvLine = describeInventoryCardForSelf(inv);
             } else {
               selfInvLine = "本局你有一张库存牌，但内容对你是保密的。";
             }
@@ -1513,6 +1580,7 @@
             // === 其他玩家库存：单独卡片 ===
             const otherCards = [];
             for (let i = 0; i < players.length; i++) {
+              if (i >= pc) continue;
               if (i === playerSeat) continue;
               const p = players[i];
               if (!p) continue;
@@ -1551,6 +1619,7 @@
             // 观战模式：查看所有玩家库存
             const allCards = [];
             for (let i = 0; i < players.length; i++) {
+              if (i >= pc) continue;
               const p = players[i];
               if (!p) continue;
               const pName = p.name || ("玩家" + (i + 1));

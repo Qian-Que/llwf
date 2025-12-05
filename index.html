@@ -207,6 +207,51 @@
       word-break: break-all;
     }
 
+    /* 底部规则浮层 */
+    .rules-footer {
+      position: fixed;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 20px);
+      max-width: 520px;
+      z-index: 900;
+      display: flex;
+      justify-content: flex-end;
+      pointer-events: none;
+    }
+    .rules-footer-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      width: 100%;
+      pointer-events: auto;
+    }
+    .rules-panel {
+      width: 100%;
+      background: #fffdf7;
+      border-radius: 12px;
+      border: 1px solid #ffdba0;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #4b5563;
+      display: none;
+      max-height: 50vh;
+      overflow: auto;
+    }
+    .rules-panel strong {
+      color: #c45b16;
+    }
+    .rules-panel-title {
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: #b45309;
+    }
+
     /* 玩家手机模式 */
     .player-root {
       max-width: 520px;
@@ -465,6 +510,49 @@
     </div>
   </div>
 
+  <!-- 规则按钮（两个模式共用） -->
+  <div class="rules-footer" id="rulesFooter">
+    <div class="rules-footer-inner">
+      <div class="rules-panel" id="rulesPanel">
+        <div class="rules-panel-title">规则速览</div>
+        <div>游戏沿用原版节奏，附加少量在线房间优化：</div>
+        <ul>
+          <li>开始前在设置界面选择人数并填写昵称（可留空）。</li>
+        </ul>
+        <strong>固定库存牌说明：</strong>
+        <ul>
+          <li>使用接近 <strong>28 张水果库存牌 + 3 张特殊牌</strong> 的结构，每张牌只提供少量库存，避免离谱爆仓。</li>
+          <li>大部分牌只包含两种水果，总数量在 2~4 左右，更接近原版手感。</li>
+        </ul>
+        <strong>三张大猩猩库存牌：</strong>
+        <ul>
+          <li><strong>0号墨菲（紫星）</strong>：四种水果库存均为 0，对订单无额外影响。</li>
+          <li><strong>香蕉南希（香蕉牌）</strong>：你的香蕉库存视为无穷大，且本局结算时所有香蕉订单都被取消。</li>
+          <li><strong>3号米奇（绿色星星）</strong>：本局结算时，所有数字为 3 的订单全部作废（不分水果）。</li>
+        </ul>
+        <strong>订单牌（双水果二选一）：</strong>
+        <ul>
+          <li>每次摸订单时，生成一张“订单牌”：上面有 <strong>两种不同水果</strong>，各有一个小数值（1~3）。</li>
+          <li>当前玩家在这两种水果中 <strong>选择一种</strong> 作为订单加入订单区，其余玩家也能看到两种选项。</li>
+        </ul>
+        <strong>经理愤怒值（递增制）：</strong>
+        <ul>
+          <li>采用原版类似机制：经理愤怒标记从 <strong>1 点、2 点、3 点…</strong> 依次递增。</li>
+          <li>第一次被骂获得 1 点，第二次 2 点，第三次 3 点……直到 7 点封顶。</li>
+          <li>某玩家愤怒值达到 8 点时，游戏立即结束，愤怒值最低者（可多人并列）获胜。</li>
+        </ul>
+        <strong>回合与结算：</strong>
+        <ul>
+          <li>玩家按顺时针轮流行动：摸订单牌 &gt; 二选一下单，或摇铃质疑。</li>
+          <li>每一局的先手玩家轮流变换，以保证相对公平。</li>
+          <li>摇铃后由系统自动结算所有玩家库存与订单（会自动应用大猩猩牌效果）。</li>
+          <li>结算后不会自动下一局，需要手动点击「➡️ 下一回合」。</li>
+        </ul>
+      </div>
+      <button class="btn secondary" id="rulesToggleBtn" onclick="toggleRules()">📘 查看规则</button>
+    </div>
+  </div>
+
   <!-- 双水果二选一弹窗（手机端） -->
   <div class="overlay" id="orderOverlay">
     <div class="overlay-inner">
@@ -599,6 +687,7 @@
     let gameStarted = false;
     let hostSeatIndex = null;     // 房主所在座位索引
     let isHostClient = false;     // 本设备是否为创建房间的房主
+    let rulesOpen = false;        // 底部规则弹层开关
 
     // 玩家端：当前房间数据
     let latestRoomData = null;
@@ -1749,6 +1838,18 @@
       updateHostControlCardVisibility();
     }
 
+    function toggleRules(force){
+      rulesOpen = typeof force === "boolean" ? force : !rulesOpen;
+      const panel = $("rulesPanel");
+      const btn = $("rulesToggleBtn");
+      if(panel){
+        panel.style.display = rulesOpen ? "block" : "none";
+      }
+      if(btn){
+        btn.textContent = rulesOpen ? "📘 收起规则" : "📘 查看规则";
+      }
+    }
+
     window.addEventListener("beforeunload", ()=>{
       if(seatOnlineRef){
         seatOnlineRef.onDisconnect().cancel();
@@ -1783,6 +1884,7 @@
     }
 
     window.onload=function(){
+      toggleRules(false);
       const roomParam=getQueryParam("room");
       const mode=getQueryParam("mode");
       // 有 room 参数（且没强制 mode=host）就默认当玩家加入房间

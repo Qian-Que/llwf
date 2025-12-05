@@ -513,17 +513,22 @@
   <!-- 规则按钮（两个模式共用） -->
   <div class="rules-footer" id="rulesFooter">
     <div class="rules-footer-inner">
-      <div class="rules-panel" id="rulesPanel">
-        <div class="rules-panel-title">规则速览</div>
-        <div>游戏沿用原版节奏，附加少量在线房间优化：</div>
-        <ul>
-          <li>开始前在设置界面选择人数并填写昵称（可留空）。</li>
-        </ul>
-        <strong>固定库存牌说明：</strong>
-        <ul>
-          <li>使用接近 <strong>28 张水果库存牌 + 3 张特殊牌</strong> 的结构，每张牌只提供少量库存，避免离谱爆仓。</li>
-          <li>大部分牌只包含两种水果，总数量在 2~4 左右，更接近原版手感。</li>
-        </ul>
+        <div class="rules-panel" id="rulesPanel">
+          <div class="rules-panel-title">规则速览</div>
+          <div>游戏沿用原版节奏，附加少量在线房间优化：</div>
+          <ul>
+            <li>开始前在设置界面选择人数并填写昵称（可留空）。</li>
+          </ul>
+          <strong>库存信息可见性：</strong>
+          <ul>
+            <li>每位玩家在回合中<strong>不能查看自己的库存牌</strong>，避免依赖完整信息决策。</li>
+            <li>其他玩家（包括观战者）可以随时查看你的库存牌，所有库存对外公开。</li>
+          </ul>
+          <strong>固定库存牌说明：</strong>
+          <ul>
+            <li>使用接近 <strong>28 张水果库存牌 + 3 张特殊牌</strong> 的结构，每张牌只提供少量库存，避免离谱爆仓。</li>
+            <li>大部分牌只包含两种水果，总数量在 2~4 左右，更接近原版手感。</li>
+          </ul>
         <strong>三张大猩猩库存牌：</strong>
         <ul>
           <li><strong>0号墨菲（紫星）</strong>：四种水果库存均为 0，对订单无额外影响。</li>
@@ -669,10 +674,7 @@
 
     function describeInventoryCardForSelf(card){
       if(!card) return "本局尚未发放库存牌。";
-      if(card.type==="zero") return "你的库存牌：0号墨菲（所有水果数量为 0）。";
-      if(card.type==="banana_inf"){ return "你的库存牌：香蕉南希（香蕉为 ∞，其他水果如牌面）。"; }
-      if(card.type==="green_star"){ return "你的库存牌：3号米奇（数字为 3 的订单无效，其余为"+describeInventoryCardShort(card).replace(/^3号米奇：/,'')+"）。"; }
-      return "你的库存牌："+describeInventoryCardShort(card)+"。";
+      return "你的库存牌已发放，内容在回合中不可查看，将在结算时自动生效。";
     }
 
     // ====== 主机端状态 ======
@@ -1578,10 +1580,8 @@
             let selfInvLine = "";
             if (!inv) {
               selfInvLine = "本局库存牌尚未发放或尚未开始。";
-            } else if (roundEnded) {
-              selfInvLine = describeInventoryCardForSelf(inv);
             } else {
-              selfInvLine = "本局你有一张库存牌，但内容对你是保密的。";
+              selfInvLine = describeInventoryCardForSelf(inv);
             }
 
             invCardText =
@@ -1606,8 +1606,7 @@
 
               let desc;
               if (!pInv) desc = "尚未发牌";
-              else if (roundEnded) desc = describeInventoryCardShort(pInv);
-              else desc = "本局进行中，库存保密";
+              else desc = describeInventoryCardShort(pInv);
 
               const html = `
                 <div class="other-player-card">
@@ -1645,8 +1644,7 @@
 
               let desc;
               if (!pInv) desc = "尚未发牌";
-              else if (roundEnded) desc = describeInventoryCardShort(pInv);
-              else desc = "本局进行中，库存保密";
+              else desc = describeInventoryCardShort(pInv);
 
               const html = `
                 <div class="other-player-card">
@@ -1663,9 +1661,7 @@
             }
 
             invCardText =
-              roundEnded
-                ? "你当前为观战模式。回合已结束，可查看所有玩家库存信息。"
-                : "你当前为观战模式。回合进行中，库存对所有人保密。";
+              "你当前为观战模式，可随时查看所有玩家库存信息。";
 
             $("playerRoomLabel").textContent = `房间：${rid} · 座位：观战中`;
 

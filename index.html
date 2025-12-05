@@ -300,20 +300,21 @@
 
     .other-player-card {
       background: #fdf7ff;
-      border-radius: 10px;
+      border-radius: 12px;
       border: 1px solid #ecd7ff;
-      padding: 6px 8px;
-      font-size: 12px;
-      margin-bottom: 4px;
+      padding: 10px 12px;
+      font-size: 14px;
+      margin-bottom: 8px;
+      line-height: 1.4;
     }
     .other-player-title {
-      font-weight: 600;
-      margin-bottom: 2px;
-      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      font-size: 14px;
     }
     .other-player-meta {
-      font-size: 11px;
-      color: #666;
+      font-size: 13px;
+      color: #4b5563;
     }
   </style>
 </head>
@@ -416,6 +417,9 @@
     <div class="card">
       <div id="playerInfoText" style="font-size:13px;">
         等待房主开始游戏…
+      </div>
+      <div id="connectionStatus" style="font-size:11px;color:#16a34a;margin-top:4px;display:none;">
+        已连接到房间
       </div>
     </div>
 
@@ -602,6 +606,8 @@
     let localNickname = localStorage.getItem("llwfNickname") || ""; // 当前设备的昵称
     let seatOnlineRef = null;      // 当前座位的在线状态引用，用于 onDisconnect
     let heartbeatTimer = null;     // 在线心跳定时器
+    let connectionRef = null;      // Firebase 连接状态引用
+    let isConnected = true;        // 当前是否与 Firebase 保持连接
 
     function genRandomRoomId(){
       const id=String(randomInt(1000,9999));
@@ -1265,6 +1271,68 @@
 
     // ====== 玩家模式 ======
 
+    function renderSeatList(players, pc, hostSeatVal){
+      const seatListEl = $("seatList");
+      if(!seatListEl) return;
+      const count = pc || players.length || 0;
+      let html = "";
+      for(let i=0;i<count;i++){
+        const p = players[i] || {};
+        const nm = p.name || ("玩家"+(i+1));
+        const online = !!p.online;
+        const isMe = (playerSeat === i);
+        const isHostSeat = (hostSeatVal === i);
+
+        let status = "";
+        if(isMe) status = "我已加入";
+        else if(online) status = "已有玩家在线";
+        else status = "空位";
+
+        const disableJoin = online && !isMe ? "disabled" : "";
+        const controlsHtml = isMe
+          ? `<button class="btn small secondary" onclick="leaveSeat()">离开座位</button>`
+          : `<button class="btn small" ${disableJoin} onclick="joinSeat(${i})">加入</button>`;
+
+        const leftText = `座位 ${i+1}${isHostSeat ? " 👑房主" : ""}：${nm}` +
+          `<span class="seat-status">（${status}）</span>`;
+
+        html += `
+          <div class="seat-pill">
+            <div>${leftText}</div>
+            ${controlsHtml}
+          </div>
+        `;
+      }
+      seatListEl.innerHTML = html;
+    }
+
+    function updateConnectionStatusUI(val){
+      const el = $("connectionStatus");
+      if(!el) return;
+      el.style.display = "block";
+      if(val){
+        el.textContent = "已连接到房间";
+        el.style.color = "#16a34a";
+      }else{
+        el.textContent = "连接中断，正在尝试重连…";
+        el.style.color = "#c2410c";
+      }
+    }
+
+    function setupConnectionWatch(){
+      if(connectionRef) return;
+      connectionRef = db.ref(".info/connected");
+      connectionRef.on("value", snap => {
+        const val = !!snap.val();
+        isConnected = val;
+        updateConnectionStatusUI(val);
+        if(val && roomId && playerSeat !== null){
+          db.ref(`rooms/${roomId}/players/${playerSeat}`).update({ online:true, lastSeen: Date.now() });
+          setupHeartbeat();
+        }
+      });
+    }
+
     function initPlayerMode(){
       const rid=getQueryParam("room") || roomId;
       if(!rid){
@@ -1274,6 +1342,8 @@
       }
       roomId = rid;
       $("playerRoomLabel").textContent=`房间：${rid} · 座位：观战中`;
+
+      setupConnectionWatch();
 
       const nickInput = $("nicknameInput");
       if(nickInput){
@@ -1305,36 +1375,7 @@
           const hostSeatVal = typeof val.hostSeat === "number" ? val.hostSeat : null;
 
           // 渲染座位列表（点击加入 / 离开）
-          const seatListEl = $("seatList");
-          if(seatListEl){
-            let html = "";
-            for(let i=0;i<pc;i++){
-              const p = players[i] || {};
-              const nm = p.name || ("玩家"+(i+1));
-              const online = !!p.online;
-              const isMe = (playerSeat === i);
-              const isHostSeat = (hostSeatVal === i);
-              let status = "";
-              if(isMe) status = "我已加入";
-              else if(online) status = "已有玩家在线";
-              else status = "空位";
-
-              const leftText = `座位 ${i+1}${isHostSeat ? " 👑房主" : ""}：${nm}` +
-                `<span class="seat-status">（${status}）</span>`;
-
-              const controlsHtml = isMe
-                ? `<button class="btn small secondary" onclick="leaveSeat()">离开座位</button>`
-                : `<button class="btn small" onclick="joinSeat(${i})">加入</button>`;
-
-              html += `
-                <div class="seat-pill">
-                  <div>${leftText}</div>
-                  ${controlsHtml}
-                </div>
-              `;
-            }
-            seatListEl.innerHTML = html;
-          }
+          renderSeatList(players, pc, hostSeatVal);
 
           const g=val.game || {};
           const started = !!g.started;
@@ -1529,6 +1570,7 @@
       if (!latestRoomData || !roomId) return;
       const players = latestRoomData.players || [];
       const target = players[seatIdx] || {};
+      const count = latestRoomData.playerCount || players.length || 0;
 
       const oldSeat = playerSeat;
       const updates = {};
@@ -1542,6 +1584,9 @@
       // 原座位自动下线
       if (oldSeat !== null && oldSeat !== seatIdx) {
         updates[`players/${oldSeat}/online`] = false;
+        if(latestRoomData.players && latestRoomData.players[oldSeat]){
+          latestRoomData.players[oldSeat].online = false;
+        }
       }
 
       // 新座位上线并更新名字
@@ -1551,12 +1596,23 @@
       updates[`players/${seatIdx}/name`] = nameToUse;
       updates[`players/${seatIdx}/lastSeen`] = Date.now();
 
+      if(!latestRoomData.players) latestRoomData.players = [];
+      latestRoomData.players[seatIdx] = {
+        ...target,
+        name: nameToUse,
+        online: true,
+        lastSeen: Date.now()
+      };
+
       if(seatOnlineRef){
         seatOnlineRef.onDisconnect().cancel();
       }
       seatOnlineRef = db.ref(`rooms/${roomId}/players/${seatIdx}/online`);
       seatOnlineRef.onDisconnect().set(false);
       setupHeartbeat();
+
+      const nextHostSeatVal = updates["hostSeat"] ?? latestRoomData.hostSeat;
+      renderSeatList(latestRoomData.players || [], count, nextHostSeatVal);
 
       // 房主逻辑：房主换座，房主身份跟着这个玩家
       const currentHostSeat = latestRoomData.hostSeat;
@@ -1592,7 +1648,13 @@
       }
       db.ref("rooms/"+roomId+"/players/"+seatIdx).update({ online:false, lastSeen:Date.now() });
 
-      const currentHostSeat = latestRoomData.hostSeat;
+      let currentHostSeat = latestRoomData.hostSeat;
+      let nextHostSeatVal = currentHostSeat;
+      if(latestRoomData && latestRoomData.players && latestRoomData.players[seatIdx]){
+        latestRoomData.players[seatIdx].online = false;
+        latestRoomData.players[seatIdx].lastSeen = Date.now();
+      }
+
       if(isHostClient && currentHostSeat === seatIdx){
         const players = latestRoomData.players || [];
         const candidates = [];
@@ -1605,9 +1667,15 @@
           newHost = candidates[randomInt(0,candidates.length-1)];
         }
         db.ref("rooms/"+roomId+"/hostSeat").set(newHost);
+        nextHostSeatVal = newHost;
       }
 
       playerSeat = null;
+      renderSeatList(
+        (latestRoomData && latestRoomData.players) ? latestRoomData.players : [],
+        (latestRoomData && (latestRoomData.playerCount || (latestRoomData.players || []).length)) || 0,
+        nextHostSeatVal
+      );
       $("playerRoomLabel").textContent=`房间：${roomId} · 座位：观战中`;
     }
 

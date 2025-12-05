@@ -421,6 +421,16 @@
       <div style="font-size:13px;margin-bottom:4px;">分享房间链接</div>
       <div class="link-box" id="shareLinkBoxPlayer"></div>
     </div>
+
+    <!-- 房主在玩家视角下的控制卡片 -->
+    <div class="card" id="hostControlInPlayerCard" style="display:none;">
+      <div style="font-size:13px;margin-bottom:4px;">房主管理</div>
+      <div style="font-size:12px;margin-bottom:6px;">
+        你是本房间房主 👑，座位坐满后可以在这里开始游戏。
+      </div>
+      <button class="btn" onclick="hostStartGame()">▶️ 开始游戏</button>
+      <div style="font-size:11px;color:#999;margin-top:4px;">（此按钮仅在本机有效）</div>
+    </div>
   </div>
 
   <!-- 双水果二选一弹窗（手机端） -->
@@ -452,7 +462,7 @@
   messagingSenderId: "78615220940",
   appId: "1:78615220940:web:90496b12ed2250072f6869",
   measurementId: "G-6RJTS4WR2T"
-   };
+};
     // ========================================================
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
@@ -555,6 +565,8 @@
     let gameOver = false;
     let actionsRef = null;
     let gameStarted = false;
+    let hostSeatIndex = null;     // 房主所在座位索引
+    let isHostClient = false;     // 本设备是否为创建房间的房主
 
     // 玩家端：当前房间数据
     let latestRoomData = null;
@@ -581,6 +593,10 @@
         hostPlayers[i]={ name:"未使用", anger:0, online:false };
       }
 
+      // 本设备为房主
+      isHostClient = true;
+      hostSeatIndex = null;
+
       // 把第一个座位的名字作为本机默认昵称
       localNickname = hostPlayers[0].name;
 
@@ -590,6 +606,7 @@
       roomRef.set({
         createdAt:Date.now(),
         playerCount,
+        hostSeat:null,
         players: hostPlayers.map((p,idx)=>({
           name:p.name, anger:0, seat:idx, inventory:null, online:false
         })),
@@ -633,6 +650,12 @@
         updateStartGameButton();
       });
 
+      // 监听 hostSeat 变化（房主标识）
+      db.ref("rooms/"+roomId+"/hostSeat").on("value", snap=>{
+        hostSeatIndex = snap.val();
+        renderHostPlayers();
+      });
+
       $("hostSetupCard").style.display="none";
       $("playersCard").style.display="block";
       $("controlCard").style.display="block";
@@ -665,6 +688,7 @@
       window.history.replaceState({}, "", url.toString());
       toggleToPlayerMode();
       initPlayerMode();
+      updateHostControlCardVisibility();
     }
 
     function renderJoinLinks(){
@@ -693,6 +717,11 @@
       const full = areSeatsFull();
       btn.disabled = !full || gameStarted;
     }
+    function updateHostControlCardVisibility(){
+      const card = $("hostControlInPlayerCard");
+      if(!card) return;
+      card.style.display = isHostClient ? "block" : "none";
+    }
 
     function renderHostPlayers(){
       const container=$("playersContainer");
@@ -700,10 +729,12 @@
       for(let i=0;i<playerCount;i++){
         const p = hostPlayers[i];
         const onlineText = p.online ? "·在线" : "";
+        const isHostSeat = (typeof hostSeatIndex === "number" && hostSeatIndex === i);
+        const namePrefix = isHostSeat ? "👑 " : "";
         html += `
           <div class="player-card" id="playerCard${i}">
             <div class="player-title-row">
-              <span>${p.name}（座位 ${i+1}${onlineText}）</span>
+              <span>${namePrefix}${p.name}（座位 ${i+1}${onlineText}）</span>
               ${i===0?`<span class="badge-round" id="roundBadge">第 ${roundNumber} 局</span>`:""}
             </div>
             <div class="anger-bar"><div class="anger-fill" id="angerFill${i}"></div></div>
@@ -865,6 +896,7 @@
       const msg="已重置整场。等待所有座位坐满并点击「开始游戏」。";
       $("infoBox").innerHTML=msg;
       db.ref("rooms/"+roomId).update({
+        hostSeat: hostSeatIndex,
         players:hostPlayers.map((p,i)=>({
           name:p.name, anger:0, seat:i, inventory:null, online:p.online||false
         })),
@@ -1233,8 +1265,9 @@
         }
         const players = val.players || [];
         const pc = val.playerCount || players.length || 0;
+        const hostSeatVal = typeof val.hostSeat === "number" ? val.hostSeat : null;
 
-        // 渲染座位列表（点击加入）
+        // 渲染座位列表（点击加入 / 离开）
         const seatListEl = $("seatList");
         if(seatListEl){
           let html = "";
@@ -1243,21 +1276,23 @@
             const nm = p.name || ("玩家"+(i+1));
             const online = !!p.online;
             const isMe = (playerSeat === i);
+            const isHostSeat = (hostSeatVal === i);
             let status = "";
             if(isMe) status = "我已加入";
             else if(online) status = "已有玩家在线";
             else status = "空位";
+
+            const leftText = `座位 ${i+1}${isHostSeat ? " 👑房主" : ""}：${nm}` +
+              `<span class="seat-status">（${status}）</span>`;
+
+            const controlsHtml = isMe
+              ? `<button class="btn small secondary" onclick="leaveSeat()">离开座位</button>`
+              : `<button class="btn small" onclick="joinSeat(${i})">加入</button>`;
+
             html += `
               <div class="seat-pill">
-                <div>
-                  座位 ${i+1}：${nm}
-                  <span class="seat-status">（${status}）</span>
-                </div>
-                ${
-                  isMe
-                    ? `<span style="font-size:11px;color:#4caf50;">已加入</span>`
-                    : `<button class="btn small" onclick="joinSeat(${i})">加入</button>`
-                }
+                <div>${leftText}</div>
+                ${controlsHtml}
               </div>
             `;
           }
@@ -1276,18 +1311,20 @@
           const name = p && p.name ? p.name : ("玩家"+(playerSeat+1));
           const inv = p && p.inventory;
           const angerVal = p && typeof p.anger==="number" ? p.anger : 0;
+          const isHostSeatMe = (hostSeatVal === playerSeat);
+          const hostTag = isHostSeatMe ? "（👑 房主）" : "";
           if(!inv){
             invCardText =
-              `${name}<br><br>本局库存牌尚未发放或尚未开始。`+
+              `${name}${hostTag}<br><br>本局库存牌尚未发放或尚未开始。`+
               `<br><br><small>当前愤怒值：${angerVal} / ${ANGER_LIMIT}</small>`;
           }else{
             const desc=describeInventoryCardShort(inv);
             invCardText =
-              `${name} 的库存牌：<br><br>${desc}`+
+              `${name}${hostTag} 的库存牌：<br><br>${desc}`+
               `<br><small>注意不要把屏幕给对手看。</small>`+
               `<br><br><small>当前愤怒值：${angerVal} / ${ANGER_LIMIT}</small>`;
           }
-          $("playerRoomLabel").textContent=`房间：${rid} · 座位：${playerSeat+1}`;
+          $("playerRoomLabel").textContent=`房间：${rid} · 座位：${playerSeat+1}${isHostSeatMe ? " · 房主" : ""}`;
         }else{
           $("playerRoomLabel").textContent=`房间：${rid} · 座位：观战中`;
         }
@@ -1375,7 +1412,37 @@
         online:true,
         name:nameToUse
       });
+      // 如果本设备是房主客户端，则把 hostSeat 设为该座位
+      if(isHostClient){
+        db.ref("rooms/"+roomId+"/hostSeat").set(seatIdx);
+      }
       $("playerRoomLabel").textContent=`房间：${roomId} · 座位：${seatIdx+1}`;
+    }
+
+    // 离开座位，回到观战模式；如果离开的是房主座位，则随机一个在线玩家成为新房主
+    function leaveSeat(){
+      if(!latestRoomData || !roomId) return;
+      if(playerSeat===null) return;
+      const seatIdx = playerSeat;
+      db.ref("rooms/"+roomId+"/players/"+seatIdx+"/online").set(false);
+
+      const currentHostSeat = latestRoomData.hostSeat;
+      if(isHostClient && currentHostSeat === seatIdx){
+        const players = latestRoomData.players || [];
+        const candidates = [];
+        for(let i=0;i<players.length;i++){
+          if(i===seatIdx) continue;
+          if(players[i] && players[i].online) candidates.push(i);
+        }
+        let newHost = null;
+        if(candidates.length>0){
+          newHost = candidates[randomInt(0,candidates.length-1)];
+        }
+        db.ref("rooms/"+roomId+"/hostSeat").set(newHost);
+      }
+
+      playerSeat = null;
+      $("playerRoomLabel").textContent=`房间：${roomId} · 座位：观战中`;
     }
 
     function enqueueActionPlayer(type){
@@ -1432,6 +1499,7 @@
     function toggleToPlayerMode(){
       $("hostRoot").style.display="none";
       $("playerRoot").style.display="flex";
+      updateHostControlCardVisibility();
     }
 
     window.onload=function(){

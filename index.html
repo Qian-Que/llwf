@@ -1277,269 +1277,285 @@
 
       const roomRef=db.ref("rooms/"+rid);
       roomRef.on("value",snap=>{
-        const val=snap.val();
-        latestRoomData = val;
-        if(!val){
-          $("playerCardView").innerHTML="房间不存在或未创建。";
-          $("playerInfoText").textContent="请确认房间号是否正确。";
-          $("orderOverlay").style.display="none";
-          $("ordersSummaryPlayer").textContent="当前还没有订单。";
-          $("ordersListPlayer").innerHTML="";
-          $("othersInvCard").style.display="none";
-          return;
-        }
-        const players = val.players || [];
-        const pc = val.playerCount || players.length || 0;
-        const hostSeatVal = typeof val.hostSeat === "number" ? val.hostSeat : null;
-
-        // 渲染座位列表（点击加入 / 离开）
-        const seatListEl = $("seatList");
-        if(seatListEl){
-          let html = "";
-          for(let i=0;i<pc;i++){
-            const p = players[i] || {};
-            const nm = p.name || ("玩家"+(i+1));
-            const online = !!p.online;
-            const isMe = (playerSeat === i);
-            const isHostSeat = (hostSeatVal === i);
-            let status = "";
-            if(isMe) status = "我已加入";
-            else if(online) status = "已有玩家在线";
-            else status = "空位";
-
-            const leftText = `座位 ${i+1}${isHostSeat ? " 👑房主" : ""}：${nm}` +
-              `<span class="seat-status">（${status}）</span>`;
-
-            const controlsHtml = isMe
-              ? `<button class="btn small secondary" onclick="leaveSeat()">离开座位</button>`
-              : `<button class="btn small" onclick="joinSeat(${i})">加入</button>`;
-
-            html += `
-              <div class="seat-pill">
-                <div>${leftText}</div>
-                ${controlsHtml}
-              </div>
-            `;
+        try{
+          const val=snap.val();
+          latestRoomData = val;
+          if(!val){
+            $("playerCardView").innerHTML="房间不存在或未创建。";
+            $("playerInfoText").textContent="请确认房间号是否正确，或等待房主创建房间。";
+            $("orderOverlay").style.display="none";
+            $("ordersSummaryPlayer").textContent="当前还没有订单。";
+            $("ordersListPlayer").innerHTML="";
+            $("othersInvCard").style.display="none";
+            return;
           }
-          seatListEl.innerHTML = html;
-        }
+          const players = val.players || [];
+          const pc = val.playerCount || players.length || 0;
+          const hostSeatVal = typeof val.hostSeat === "number" ? val.hostSeat : null;
 
-        const g=val.game || {};
-        const started = !!g.started;
-        const info=g.infoText || (started ? "游戏进行中…" : "等待房主开始游戏…");
-        $("playerInfoText").innerHTML=info;
+          // 渲染座位列表（点击加入 / 离开）
+          const seatListEl = $("seatList");
+          if(seatListEl){
+            let html = "";
+            for(let i=0;i<pc;i++){
+              const p = players[i] || {};
+              const nm = p.name || ("玩家"+(i+1));
+              const online = !!p.online;
+              const isMe = (playerSeat === i);
+              const isHostSeat = (hostSeatVal === i);
+              let status = "";
+              if(isMe) status = "我已加入";
+              else if(online) status = "已有玩家在线";
+              else status = "空位";
 
-        // === 自己的总体信息（不看库存内容） ===
-        let invCardText = "";
-        const othersInvCard = $("othersInvCard");
-        const othersInvList = $("othersInvList");
-        const othersInvTitle = $("othersInvTitle");
+              const leftText = `座位 ${i+1}${isHostSeat ? " 👑房主" : ""}：${nm}` +
+                `<span class="seat-status">（${status}）</span>`;
 
-        if(playerSeat !== null){
-          const me = players[playerSeat];
-          const name = me && me.name ? me.name : ("玩家" + (playerSeat + 1));
-          const inv = me && me.inventory;
-          const angerVal = me && typeof me.anger === "number" ? me.anger : 0;
-          const isHostSeatMe = (hostSeatVal === playerSeat);
-          const hostTag = isHostSeatMe ? "（👑 房主）" : "";
+              const controlsHtml = isMe
+                ? `<button class="btn small secondary" onclick="leaveSeat()">离开座位</button>`
+                : `<button class="btn small" onclick="joinSeat(${i})">加入</button>`;
 
-          let selfInvLine = "";
-          if (!inv) {
-            selfInvLine = "本局库存牌尚未发放或尚未开始。";
+              html += `
+                <div class="seat-pill">
+                  <div>${leftText}</div>
+                  ${controlsHtml}
+                </div>
+              `;
+            }
+            seatListEl.innerHTML = html;
+          }
+
+          const g=val.game || {};
+          const started = !!g.started;
+          const info=g.infoText || (started ? "游戏进行中…" : "等待房主开始游戏…");
+          $("playerInfoText").innerHTML=info;
+
+          // === 自己的总体信息（不看库存内容） + 其他玩家卡片 ===
+          let invCardText = "";
+          const othersInvCard = $("othersInvCard");
+          const othersInvList = $("othersInvList");
+          const othersInvTitle = $("othersInvTitle");
+
+          if(playerSeat !== null){
+            const me = players[playerSeat];
+            const name = me && me.name ? me.name : ("玩家" + (playerSeat + 1));
+            const inv = me && me.inventory;
+            const angerVal = me && typeof me.anger === "number" ? me.anger : 0;
+            const isHostSeatMe = (hostSeatVal === playerSeat);
+            const hostTag = isHostSeatMe ? "（👑 房主）" : "";
+
+            let selfInvLine = "";
+            if (!inv) {
+              selfInvLine = "本局库存牌尚未发放或尚未开始。";
+            } else {
+              selfInvLine = "本局你有一张库存牌，但内容对你是保密的。";
+            }
+
+            invCardText =
+              `${name}${hostTag}<br><br>` +
+              selfInvLine +
+              `<br><br><small>你的愤怒值：${angerVal} / ${ANGER_LIMIT}</small>`;
+
+            $("playerRoomLabel").textContent =
+              `房间：${rid} · 座位：${playerSeat + 1}${isHostSeatMe ? " · 房主" : ""}`;
+
+            // === 其他玩家库存：单独卡片 ===
+            const otherCards = [];
+            for (let i = 0; i < players.length; i++) {
+              if (i === playerSeat) continue;
+              const p = players[i];
+              if (!p) continue;
+              const pName = p.name || ("玩家" + (i + 1));
+              const pInv = p.inventory;
+              const pAnger = typeof p.anger === "number" ? p.anger : 0;
+              const isHost = (hostSeatVal === i);
+
+              let desc;
+              if (!pInv) desc = "尚未发牌";
+              else desc = describeInventoryCardShort(pInv);
+
+              const html = `
+                <div class="other-player-card">
+                  <div class="other-player-title">
+                    座位 ${i + 1}${isHost ? " 👑房主" : ""}：${pName}
+                  </div>
+                  <div class="other-player-meta">
+                    库存：${desc}<br>
+                    愤怒值：${pAnger} / ${ANGER_LIMIT}
+                  </div>
+                </div>
+              `;
+              otherCards.push(html);
+            }
+
+            if (otherCards.length > 0) {
+              othersInvTitle.textContent = "其他玩家库存";
+              othersInvList.innerHTML = otherCards.join("");
+              othersInvCard.style.display = "block";
+            } else {
+              othersInvCard.style.display = "none";
+            }
+
           } else {
-            selfInvLine = "本局你有一张库存牌，但内容对你是保密的。";
-          }
+            // 观战模式：查看所有玩家库存
+            const allCards = [];
+            for (let i = 0; i < players.length; i++) {
+              const p = players[i];
+              if (!p) continue;
+              const pName = p.name || ("玩家" + (i + 1));
+              const pInv = p.inventory;
+              const pAnger = typeof p.anger === "number" ? p.anger : 0;
+              const isHost = (hostSeatVal === i);
 
-          invCardText =
-            `${name}${hostTag}<br><br>` +
-            selfInvLine +
-            `<br><br><small>你的愤怒值：${angerVal} / ${ANGER_LIMIT}</small>`;
+              let desc;
+              if (!pInv) desc = "尚未发牌";
+              else desc = describeInventoryCardShort(pInv);
 
-          $("playerRoomLabel").textContent =
-            `房间：${rid} · 座位：${playerSeat + 1}${isHostSeatMe ? " · 房主" : ""}`;
-
-          // === 其他玩家库存：单独卡片 ===
-          const otherCards = [];
-          for (let i = 0; i < players.length; i++) {
-            if (i === playerSeat) continue;
-            const p = players[i];
-            if (!p) continue;
-            const pName = p.name || ("玩家" + (i + 1));
-            const pInv = p.inventory;
-            const pAnger = typeof p.anger === "number" ? p.anger : 0;
-            const isHost = (hostSeatVal === i);
-
-            let desc;
-            if (!pInv) desc = "尚未发牌";
-            else desc = describeInventoryCardShort(pInv);
-
-            const html = `
-              <div class="other-player-card">
-                <div class="other-player-title">
-                  座位 ${i + 1}${isHost ? " 👑房主" : ""}：${pName}
+              const html = `
+                <div class="other-player-card">
+                  <div class="other-player-title">
+                    座位 ${i + 1}${isHost ? " 👑房主" : ""}：${pName}
+                  </div>
+                  <div class="other-player-meta">
+                    库存：${desc}<br>
+                    愤怒值：${pAnger} / ${ANGER_LIMIT}
+                  </div>
                 </div>
-                <div class="other-player-meta">
-                  库存：${desc}<br>
-                  愤怒值：${pAnger} / ${ANGER_LIMIT}
-                </div>
-              </div>
-            `;
-            otherCards.push(html);
+              `;
+              allCards.push(html);
+            }
+
+            invCardText =
+              "你当前为观战模式。可以查看所有玩家库存信息。";
+
+            $("playerRoomLabel").textContent = `房间：${rid} · 座位：观战中`;
+
+            if (allCards.length > 0) {
+              othersInvTitle.textContent = "所有玩家库存";
+              othersInvList.innerHTML = allCards.join("");
+              othersInvCard.style.display = "block";
+            } else {
+              othersInvCard.style.display = "none";
+            }
           }
 
-          if (otherCards.length > 0) {
-            othersInvTitle.textContent = "其他玩家库存";
-            othersInvList.innerHTML = otherCards.join("");
-            othersInvCard.style.display = "block";
-          } else {
-            othersInvCard.style.display = "none";
+          $("playerCardView").innerHTML = invCardText;
+
+          const gameOverFlag = !!g.gameOver;
+          const isMyTurn = (g.currentPlayer===playerSeat);
+
+          // 观战模式或未开始时不能操作
+          if($("pDrawBtn")){
+            $("pDrawBtn").disabled = (playerSeat===null || !isMyTurn || gameOverFlag || !started);
+          }
+          if($("pBellBtn")){
+            $("pBellBtn").disabled = (playerSeat===null || gameOverFlag || !started);
+          }
+          if($("pNextBtn")){
+            $("pNextBtn").disabled = (playerSeat===null || gameOverFlag || !started);
           }
 
-        } else {
-          // 观战模式：查看所有玩家库存
-          const allCards = [];
-          for (let i = 0; i < players.length; i++) {
-            const p = players[i];
-            if (!p) continue;
-            const pName = p.name || ("玩家" + (i + 1));
-            const pInv = p.inventory;
-            const pAnger = typeof p.anger === "number" ? p.anger : 0;
-            const isHost = (hostSeatVal === i);
-
-            let desc;
-            if (!pInv) desc = "尚未发牌";
-            else desc = describeInventoryCardShort(pInv);
-
-            const html = `
-              <div class="other-player-card">
-                <div class="other-player-title">
-                  座位 ${i + 1}${isHost ? " 👑房主" : ""}：${pName}
-                </div>
-                <div class="other-player-meta">
-                  库存：${desc}<br>
-                  愤怒值：${pAnger} / ${ANGER_LIMIT}
-                </div>
-              </div>
-            `;
-            allCards.push(html);
+          // 结算区：玩家也显示当前订单
+          const ordersArr = g.orders || [];
+          const sumEl = $("ordersSummaryPlayer");
+          const listEl = $("ordersListPlayer");
+          if(sumEl && listEl){
+            if(ordersArr.length===0){
+              sumEl.textContent = "当前还没有订单。";
+              listEl.innerHTML = "";
+            }else{
+              const totals={grape:0,strawberry:0,banana:0,durian:0};
+              ordersArr.forEach(o=>{
+                if(!o || !o.fruitKey) return;
+                if(!(o.fruitKey in totals)) return;
+                totals[o.fruitKey]+=o.amount||0;
+              });
+              const frags=[];
+              FRUITS.forEach(f=>{
+                frags.push(`<span>${f.emoji}${f.label}：${totals[f.key]}</span>`);
+              });
+              sumEl.innerHTML = frags.join("");
+              listEl.innerHTML = "";
+              ordersArr.forEach(o=>{
+                const f=FRUITS.find(x=>x.key===o.fruitKey);
+                const nm = players[o.by] && players[o.by].name ? players[o.by].name : ("玩家"+( (o.by||0)+1 ));
+                const div=document.createElement("div");
+                div.className="order-card";
+                const icon=document.createElement("span");
+                icon.textContent=f?f.emoji:"?";
+                const t=document.createElement("span");
+                t.textContent=`${f?f.label:"水果"} × ${o.amount||0}（${nm}）`;
+                div.appendChild(icon);div.appendChild(t);
+                listEl.appendChild(div);
+              });
+            }
           }
 
-          invCardText =
-            "你当前为观战模式。可以查看所有玩家库存信息。";
-
-          $("playerRoomLabel").textContent = `房间：${rid} · 座位：观战中`;
-
-          if (allCards.length > 0) {
-            othersInvTitle.textContent = "所有玩家库存";
-            othersInvList.innerHTML = allCards.join("");
-            othersInvCard.style.display = "block";
-          } else {
-            othersInvCard.style.display = "none";
-          }
-        }
-
-        $("playerCardView").innerHTML = invCardText;
-
-        const gameOverFlag = !!g.gameOver;
-        const isMyTurn = (g.currentPlayer===playerSeat);
-
-        // 观战模式或未开始时不能操作
-        if($("pDrawBtn")){
-          $("pDrawBtn").disabled = (playerSeat===null || !isMyTurn || gameOverFlag || !started);
-        }
-        if($("pBellBtn")){
-          $("pBellBtn").disabled = (playerSeat===null || gameOverFlag || !started);
-        }
-        if($("pNextBtn")){
-          $("pNextBtn").disabled = (playerSeat===null || gameOverFlag || !started);
-        }
-
-        // 结算区：玩家也显示当前订单
-        const ordersArr = g.orders || [];
-        const sumEl = $("ordersSummaryPlayer");
-        const listEl = $("ordersListPlayer");
-        if(sumEl && listEl){
-          if(ordersArr.length===0){
-            sumEl.textContent = "当前还没有订单。";
-            listEl.innerHTML = "";
+          // 如果轮到我选订单，弹窗
+          const pending = g.pendingOrder;
+          if(started && pending && pending.by === playerSeat && pending.awaitingChoice){
+            const fruitA = FRUITS.find(f=>f.key===pending.optionA.fruitKey);
+            const fruitB = FRUITS.find(f=>f.key===pending.optionB.fruitKey);
+            $("orderOverlayTitle").textContent = "你摸到两种订单，选择其一：";
+            $("orderOptAEmoji").textContent = fruitA ? fruitA.emoji : "A";
+            $("orderOptAText").textContent = (fruitA ? fruitA.label : "水果") + " × " + pending.optionA.amount;
+            $("orderOptBEmoji").textContent = fruitB ? fruitB.emoji : "B";
+            $("orderOptBText").textContent = (fruitB ? fruitB.label : "水果") + " × " + pending.optionB.amount;
+            $("orderOverlay").style.display = "flex";
           }else{
-            const totals={grape:0,strawberry:0,banana:0,durian:0};
-            ordersArr.forEach(o=>{
-              if(!o || !o.fruitKey) return;
-              if(!(o.fruitKey in totals)) return;
-              totals[o.fruitKey]+=o.amount||0;
-            });
-            const frags=[];
-            FRUITS.forEach(f=>{
-              frags.push(`<span>${f.emoji}${f.label}：${totals[f.key]}</span>`);
-            });
-            sumEl.innerHTML = frags.join("");
-            listEl.innerHTML = "";
-            ordersArr.forEach(o=>{
-              const f=FRUITS.find(x=>x.key===o.fruitKey);
-              const nm = players[o.by] && players[o.by].name ? players[o.by].name : ("玩家"+( (o.by||0)+1 ));
-              const div=document.createElement("div");
-              div.className="order-card";
-              const icon=document.createElement("span");
-              icon.textContent=f?f.emoji:"?";
-              const t=document.createElement("span");
-              t.textContent=`${f?f.label:"水果"} × ${o.amount||0}（${nm}）`;
-              div.appendChild(icon);div.appendChild(t);
-              listEl.appendChild(div);
-            });
+            $("orderOverlay").style.display = "none";
           }
-        }
-
-        // 如果轮到我选订单，弹窗
-        const pending = g.pendingOrder;
-        if(started && pending && pending.by === playerSeat && pending.awaitingChoice){
-          const fruitA = FRUITS.find(f=>f.key===pending.optionA.fruitKey);
-          const fruitB = FRUITS.find(f=>f.key===pending.optionB.fruitKey);
-          $("orderOverlayTitle").textContent = "你摸到两种订单，选择其一：";
-          $("orderOptAEmoji").textContent = fruitA ? fruitA.emoji : "A";
-          $("orderOptAText").textContent = (fruitA ? fruitA.label : "水果") + " × " + pending.optionA.amount;
-          $("orderOptBEmoji").textContent = fruitB ? fruitB.emoji : "B";
-          $("orderOptBText").textContent = (fruitB ? fruitB.label : "水果") + " × " + pending.optionB.amount;
-          $("orderOverlay").style.display = "flex";
-        }else{
-          $("orderOverlay").style.display = "none";
+        }catch(e){
+          console.error("房间数据处理出错:", e);
+          $("playerCardView").innerHTML =
+            "连接房间时出错，请刷新页面或稍后重试。<br><small>如果多台设备都这样，检查一下 Firebase Realtime Database 的规则是否允许读写。</small>";
         }
       });
     }
 
-    // 自动换座：直接点击其他座位会把原座位设为离线
+    // 自动换座：点击新座位，原座位自动下线；如果是房主，房主身份跟随座位移动
     function joinSeat(seatIdx){
-      if(!latestRoomData || !roomId) return;
+      if (!latestRoomData || !roomId) return;
       const players = latestRoomData.players || [];
-      const p = players[seatIdx];
-      if(!p) return;
+      const target = players[seatIdx] || {};
 
-      // 如果该座位已经有别的玩家在线，且不是我当前的座位，则禁止抢座
-      if(p.online && playerSeat !== seatIdx){
+      const oldSeat = playerSeat;
+      const updates = {};
+
+      // 目标座位已被其他设备占用时不允许抢座
+      if (target.online && oldSeat !== seatIdx) {
         alert("该座位已有玩家在线，请选择其他座位或继续观战。");
         return;
       }
 
-      const updates = {};
-
-      // 如果我本来坐在别处，先把原座位标记为离线
-      if(playerSeat !== null && playerSeat !== seatIdx){
-        updates[`players/${playerSeat}/online`] = false;
+      // 原座位自动下线
+      if (oldSeat !== null && oldSeat !== seatIdx) {
+        updates[`players/${oldSeat}/online`] = false;
       }
 
-      // 更新当前座位为“我在线”
+      // 新座位上线并更新名字
       playerSeat = seatIdx;
-      const nameToUse = localNickname || p.name || ("玩家"+(seatIdx+1));
+      const nameToUse = localNickname || target.name || ("玩家" + (seatIdx + 1));
       updates[`players/${seatIdx}/online`] = true;
       updates[`players/${seatIdx}/name`] = nameToUse;
 
-      // 如果本设备是房主客户端，则同步房主座位
-      if(isHostClient){
+      // 房主逻辑：房主换座，房主身份跟着这个玩家
+      const currentHostSeat = latestRoomData.hostSeat;
+      const hasHostSeat = typeof currentHostSeat === "number";
+      const iWasHostBeforeMove =
+        hasHostSeat && oldSeat !== null && currentHostSeat === oldSeat;
+
+      if (!hasHostSeat && isHostClient) {
+        // 房间还没指定房主座位，且这是创建房间的设备第一次入座
+        updates["hostSeat"] = seatIdx;
+      } else if (iWasHostBeforeMove) {
+        // 我原来就是房主，换位之后房主跟着我
         updates["hostSeat"] = seatIdx;
       }
 
-      db.ref("rooms/"+roomId).update(updates);
-      $("playerRoomLabel").textContent=`房间：${roomId} · 座位：${seatIdx+1}`;
+      db.ref("rooms/" + roomId).update(updates);
+
+      $("playerRoomLabel").textContent = `房间：${roomId} · 座位：${seatIdx + 1}`;
     }
 
     // 离开座位，回到观战模式；如果离开的是房主座位，则随机一个在线玩家成为新房主

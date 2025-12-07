@@ -1578,7 +1578,12 @@
             if (!inv) {
               selfInvLine = "本局库存牌尚未发放或尚未开始。";
             } else {
-              selfInvLine = describeInventoryCardForSelf(inv);
+              if (roundEnded) {
+                const desc = describeInventoryCardShort(inv);
+                selfInvLine = `本局库存：${desc}<br><small>（结算阶段可复盘查看；下一局发新牌后将自动隐藏）</small>`;
+              } else {
+                selfInvLine = describeInventoryCardForSelf(inv);
+              }
             }
 
             invCardText =

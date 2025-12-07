@@ -197,6 +197,16 @@
       color: #555;
       line-height: 1.4;
     }
+    .status-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+    .status-actions small {
+      color: #999;
+    }
     .link-box {
       font-size: 12px;
       background: #fff;
@@ -459,14 +469,18 @@
       <small>请确认链接或房间号正确，且房主已创建房间。</small>
     </div>
 
-    <div class="card">
-      <div id="playerInfoText" style="font-size:13px;">
-        等待房主开始游戏…
+      <div class="card">
+        <div id="playerInfoText" style="font-size:13px;">
+          等待房主开始游戏…
+        </div>
+        <div class="status-actions">
+          <div id="connectionStatus" style="font-size:11px;color:#16a34a;display:none;">
+            已连接到房间
+          </div>
+          <button class="btn small secondary" id="retryConnectBtn" style="display:none;" onclick="manualReconnect()">重新尝试连接</button>
+          <small id="connectionHint" style="display:none;">连接异常时，可点击重试</small>
+        </div>
       </div>
-      <div id="connectionStatus" style="font-size:11px;color:#16a34a;margin-top:4px;display:none;">
-        已连接到房间
-      </div>
-    </div>
 
     <div class="card">
       <div style="font-size:13px;margin-bottom:6px;">操作</div>
@@ -707,6 +721,7 @@
     let heartbeatTimer = null;     // 在线心跳定时器
     let connectionRef = null;      // Firebase 连接状态引用
     let isConnected = true;        // 当前是否与 Firebase 保持连接
+    let reconnectTimer = null;     // 连接重试定时器
 
     function genRandomRoomId(){
       const id=String(randomInt(1000,9999));
@@ -1469,15 +1484,40 @@
 
     function updateConnectionStatusUI(val){
       const el = $("connectionStatus");
+      const retryBtn = $("retryConnectBtn");
+      const hint = $("connectionHint");
       if(!el) return;
       el.style.display = "block";
       if(val){
         el.textContent = "已连接到房间";
         el.style.color = "#16a34a";
+        if(retryBtn) retryBtn.style.display = "none";
+        if(hint) hint.style.display = "none";
       }else{
         el.textContent = "连接中断，正在尝试重连…";
         el.style.color = "#c2410c";
+        if(retryBtn) retryBtn.style.display = "inline-flex";
+        if(hint) hint.style.display = "inline";
       }
+    }
+
+    function forceReconnect(reason){
+      if(!db || typeof db.goOnline !== "function" || typeof db.goOffline !== "function") return;
+      if(reconnectTimer){
+        clearTimeout(reconnectTimer);
+      }
+      const delay = reason === "manual" ? 0 : 600;
+      reconnectTimer = setTimeout(()=>{
+        try{ db.goOffline(); }catch(e){ console.warn("goOffline 失败", e); }
+        setTimeout(()=>{
+          try{ db.goOnline(); }catch(e){ console.warn("goOnline 失败", e); }
+        }, 200);
+      }, delay);
+    }
+
+    function manualReconnect(){
+      updateConnectionStatusUI(false);
+      forceReconnect("manual");
     }
 
     function setupConnectionWatch(){
@@ -1491,6 +1531,7 @@
         if(!val && db && typeof db.goOnline === "function"){
           // 主动提示 Firebase 重新上线，避免偶发断线导致其他玩家无法加入
           setTimeout(()=>db.goOnline(), 800);
+          forceReconnect("auto");
         }
         if(val && roomId && playerSeat !== null){
           db.ref(`rooms/${roomId}/players/${playerSeat}`).update({ online:true, lastSeen: Date.now() });

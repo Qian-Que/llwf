@@ -854,7 +854,7 @@
       const full = areSeatsFull();
       const isRestart = gameStarted;
       btn.textContent = isRestart ? "🔄 重新开始" : "▶️ 开始游戏";
-      btn.disabled = !full;
+      btn.disabled = !isRestart && !full;
       if(hostBtnPlayer){
         hostBtnPlayer.textContent = btn.textContent;
         hostBtnPlayer.disabled = btn.disabled;
@@ -1002,6 +1002,7 @@
       dealNewInventories();
       updateOrdersSummary();
       updateTurnIndicators();
+      updateStartGameButton();
 
       const msg=`第 ${roundNumber} 局开始。先手：${hostPlayers[currentPlayer].name}`;
       $("infoBox").innerHTML=msg;
@@ -1086,10 +1087,6 @@
 
     function hostRestartGame(){
       if(!roomId) return;
-      if(!areSeatsFull()){
-        alert("座位尚未坐满，无法重新开始。");
-        return;
-      }
       hostPlayers.forEach(p=>p.anger=0);
       angerToken=1;
       roundNumber=1;
@@ -1594,19 +1591,17 @@
 
             // === 其他玩家库存：单独卡片 ===
             const otherCards = [];
-            for (let i = 0; i < players.length; i++) {
-              if (i >= pc) continue;
+            for (let i = 0; i < pc; i++) {
               if (i === playerSeat) continue;
               const p = players[i];
-              if (!p) continue;
-              const pName = p.name || ("玩家" + (i + 1));
-              const pInv = p.inventory;
-              const pAnger = typeof p.anger === "number" ? p.anger : 0;
+              const pName = p && p.name ? p.name : ("玩家" + (i + 1));
+              const pInv = p && p.inventory;
+              const pAnger = p && typeof p.anger === "number" ? p.anger : 0;
               const isHost = (hostSeatVal === i);
 
-              let desc;
-              if (!pInv) desc = "尚未发牌";
-              else desc = describeInventoryCardShort(pInv);
+              let desc = "尚未发牌";
+              if (pInv) desc = describeInventoryCardShort(pInv);
+              else if (!p) desc = "座位暂无玩家";
 
               const html = `
                 <div class="other-player-card">
@@ -1622,28 +1617,26 @@
               otherCards.push(html);
             }
 
+            othersInvTitle.textContent = "其他玩家库存";
             if (otherCards.length > 0) {
-              othersInvTitle.textContent = "其他玩家库存";
               othersInvList.innerHTML = otherCards.join("");
-              othersInvCard.style.display = "block";
             } else {
-              othersInvCard.style.display = "none";
+              othersInvList.innerHTML = "<div style=\"font-size:12px;color:#999;\">当前没有可展示的其他玩家库存。</div>";
             }
+            othersInvCard.style.display = "block";
 
           } else {
             // 观战模式：查看所有玩家库存
             const allCards = [];
-            for (let i = 0; i < players.length; i++) {
-              if (i >= pc) continue;
+            for (let i = 0; i < pc; i++) {
               const p = players[i];
-              if (!p) continue;
-              const pName = p.name || ("玩家" + (i + 1));
-              const pInv = p.inventory;
-              const pAnger = typeof p.anger === "number" ? p.anger : 0;
+              const pName = p && p.name ? p.name : ("玩家" + (i + 1));
+              const pInv = p && p.inventory;
+              const pAnger = p && typeof p.anger === "number" ? p.anger : 0;
               const isHost = (hostSeatVal === i);
 
               let desc;
-              if (!pInv) desc = "尚未发牌";
+              if (!pInv) desc = p ? "尚未发牌" : "座位暂无玩家";
               else desc = describeInventoryCardShort(pInv);
 
               const html = `
@@ -1665,13 +1658,13 @@
 
             $("playerRoomLabel").textContent = `房间：${rid} · 座位：观战中`;
 
+            othersInvTitle.textContent = "所有玩家库存";
             if (allCards.length > 0) {
-              othersInvTitle.textContent = "所有玩家库存";
               othersInvList.innerHTML = allCards.join("");
-              othersInvCard.style.display = "block";
             } else {
-              othersInvCard.style.display = "none";
+              othersInvList.innerHTML = "<div style=\"font-size:12px;color:#999;\">暂无玩家或暂不可用的库存信息。</div>";
             }
+            othersInvCard.style.display = "block";
           }
 
           $("playerCardView").innerHTML = invCardText;

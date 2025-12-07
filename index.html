@@ -722,6 +722,9 @@
     let connectionRef = null;      // Firebase 连接状态引用
     let isConnected = true;        // 当前是否与 Firebase 保持连接
     let reconnectTimer = null;     // 连接重试定时器
+    let roomRefCurrent = null;     // 玩家模式下正在监听的房间引用
+    let roomSnapshotHandler = null; // 记录当前监听回调，方便重新绑定
+    let roomErrorHandler = null;
 
     function genRandomRoomId(){
       const id=String(randomInt(1000,9999));
@@ -1518,6 +1521,7 @@
     function manualReconnect(){
       updateConnectionStatusUI(false);
       forceReconnect("manual");
+      reattachRoomListener();
     }
 
     function setupConnectionWatch(){
@@ -1532,12 +1536,22 @@
           // 主动提示 Firebase 重新上线，避免偶发断线导致其他玩家无法加入
           setTimeout(()=>db.goOnline(), 800);
           forceReconnect("auto");
+        } else if(val){
+          // 重新连接时，确保房间订阅被恢复
+          reattachRoomListener();
         }
         if(val && roomId && playerSeat !== null){
           db.ref(`rooms/${roomId}/players/${playerSeat}`).update({ online:true, lastSeen: Date.now() });
           setupHeartbeat();
         }
       });
+    }
+
+    function reattachRoomListener(){
+      if(roomRefCurrent && roomSnapshotHandler){
+        roomRefCurrent.off("value", roomSnapshotHandler);
+        roomRefCurrent.on("value", roomSnapshotHandler, roomErrorHandler || undefined);
+      }
     }
 
     function initPlayerMode(){
@@ -1564,6 +1578,7 @@
         `<code>${baseUrl}</code><br>把这条链接发给其他玩家，让他们加入并选择座位。`;
 
       const roomRef=db.ref("rooms/"+rid);
+      roomRefCurrent = roomRef;
 
       const handleRoomError = (err) => {
         console.error("读取房间数据失败:", err);
@@ -1572,6 +1587,8 @@
           "连接房间时出错，请刷新页面或稍后重试。<br><small>如果多台设备都这样，检查一下 Firebase Realtime Database 的规则是否允许读写。</small>";
         $("playerInfoText").textContent = "房间数据暂时无法读取，请稍后重试。";
         renderSeatList([], 0, null);
+        // 遇到错误时尝试重新订阅
+        setTimeout(reattachRoomListener, 600);
       };
 
       const handleRoomSnapshot = (snap) => {
@@ -1785,6 +1802,8 @@
         }
       };
 
+      roomSnapshotHandler = handleRoomSnapshot;
+      roomErrorHandler = handleRoomError;
       roomRef.on("value", handleRoomSnapshot, handleRoomError);
       roomRef.once("value").then(handleRoomSnapshot).catch(handleRoomError);
     }

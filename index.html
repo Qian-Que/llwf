@@ -725,6 +725,7 @@
     let roomRefCurrent = null;     // 玩家模式下正在监听的房间引用
     let roomSnapshotHandler = null; // 记录当前监听回调，方便重新绑定
     let roomErrorHandler = null;
+    const STALE_SEAT_GRACE_MS = 45000; // 在线状态超过该时间未更新则视为掉线
 
     function genRandomRoomId(){
       const id=String(randomInt(1000,9999));
@@ -1459,15 +1460,18 @@
         const p = players[i] || {};
         const nm = p.name || ("玩家"+(i+1));
         const online = !!p.online;
+        const lastSeen = typeof p.lastSeen === "number" ? p.lastSeen : 0;
+        const isStale = online && lastSeen && (Date.now() - lastSeen > STALE_SEAT_GRACE_MS);
         const isMe = (playerSeat === i);
         const isHostSeat = (hostSeatVal === i);
 
         let status = "";
         if(isMe) status = "我已加入";
-        else if(online) status = "已有玩家在线";
+        else if(online && !isStale) status = "已有玩家在线";
+        else if(online && isStale) status = "疑似掉线，可加入";
         else status = "空位";
 
-        const disableJoin = online && !isMe ? "disabled" : "";
+        const disableJoin = (online && !isStale && !isMe) ? "disabled" : "";
         const controlsHtml = isMe
           ? `<button class="btn small secondary" onclick="leaveSeat()">离开座位</button>`
           : `<button class="btn small" ${disableJoin} onclick="joinSeat(${i})">加入</button>`;
@@ -1813,13 +1817,15 @@
       if (!latestRoomData || !roomId) return;
       const players = latestRoomData.players || [];
       const target = players[seatIdx] || {};
+      const lastSeen = typeof target.lastSeen === "number" ? target.lastSeen : 0;
+      const isStale = target.online && lastSeen && (Date.now() - lastSeen > STALE_SEAT_GRACE_MS);
       const count = latestRoomData.playerCount || players.length || 0;
 
       const oldSeat = playerSeat;
       const updates = {};
 
       // 目标座位已被其他设备占用时不允许抢座
-      if (target.online && oldSeat !== seatIdx) {
+      if (target.online && oldSeat !== seatIdx && !isStale) {
         alert("该座位已有玩家在线，请选择其他座位或继续观战。");
         return;
       }

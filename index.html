@@ -725,6 +725,8 @@
     let roomRefCurrent = null;     // 玩家模式下正在监听的房间引用
     let roomSnapshotHandler = null; // 记录当前监听回调，方便重新绑定
     let roomErrorHandler = null;
+    let lastRoomSnapshotAt = 0;    // 最近一次成功收到房间数据的时间戳
+    let roomWatchdogTimer = null;  // 定期检查连接是否卡死
     const STALE_SEAT_GRACE_MS = 45000; // 在线状态超过该时间未更新则视为掉线
 
     function genRandomRoomId(){
@@ -1528,6 +1530,22 @@
       reattachRoomListener();
     }
 
+    function startRoomWatchdog(){
+      if(roomWatchdogTimer){
+        clearInterval(roomWatchdogTimer);
+      }
+      roomWatchdogTimer = setInterval(()=>{
+        if(!roomRefCurrent) return;
+        const now = Date.now();
+        const snapshotStale = now - lastRoomSnapshotAt > 20000; // 20 秒没数据视为卡住
+        if(snapshotStale || !isConnected){
+          updateConnectionStatusUI(false);
+          forceReconnect("watchdog");
+          reattachRoomListener();
+        }
+      }, 8000);
+    }
+
     function setupConnectionWatch(){
       if(connectionRef) return;
       connectionRef = db.ref(".info/connected");
@@ -1586,6 +1604,7 @@
 
       const handleRoomError = (err) => {
         console.error("读取房间数据失败:", err);
+        lastRoomSnapshotAt = 0;
         updateConnectionStatusUI(false);
         $("playerCardView").innerHTML =
           "连接房间时出错，请刷新页面或稍后重试。<br><small>如果多台设备都这样，检查一下 Firebase Realtime Database 的规则是否允许读写。</small>";
@@ -1597,6 +1616,8 @@
 
       const handleRoomSnapshot = (snap) => {
         try{
+          lastRoomSnapshotAt = Date.now();
+          updateConnectionStatusUI(true);
           const val=snap.val();
           latestRoomData = val;
           if(!val){
@@ -1810,6 +1831,8 @@
       roomErrorHandler = handleRoomError;
       roomRef.on("value", handleRoomSnapshot, handleRoomError);
       roomRef.once("value").then(handleRoomSnapshot).catch(handleRoomError);
+      lastRoomSnapshotAt = Date.now();
+      startRoomWatchdog();
     }
 
     // 自动换座：点击新座位，原座位自动下线；如果是房主，房主身份跟随座位移动
